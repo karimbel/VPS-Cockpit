@@ -99,10 +99,15 @@ ipcMain.handle('update:check', async () => {
 });
 ipcMain.handle('update:install', async (e) => {
   const old = exePath();
-  const part = old + '.part', bak = old + '.old';
+  let part = '';
   try {
     if (!pending) throw new Error("Vérifie d'abord s'il existe une mise à jour.");
     if (!old) throw new Error("Les mises à jour ne fonctionnent qu'avec l'application installée (le fichier .exe).");
+    // Le nouvel exe est téléchargé À CÔTÉ de l'ancien (on ne remplace jamais un exe qui tourne).
+    const dir = path.dirname(old);
+    let finalPath = path.join(dir, pending.exeName);
+    if (finalPath.toLowerCase() === old.toLowerCase()) finalPath = finalPath.replace(/\.exe$/i, '-maj.exe');
+    part = finalPath + '.part';
     // 1. téléchargement, avec calcul de l'empreinte au fil de l'eau
     const res = await net.fetch(pending.exeUrl, { headers: { 'User-Agent': 'VPS-Cockpit' } });
     if (!res.ok || !res.body) throw new Error(`Téléchargement impossible (${res.status}).`);
@@ -115,44 +120,38 @@ ipcMain.handle('update:install', async (e) => {
         yield chunk;
       }
     };
-    try {
-      await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(part));
-    } catch (err) { try { fs.unlinkSync(part); } catch { /* rien */ } throw err; }
+    await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(part));
     // 2. vérification
-    if (hash.digest('hex') !== pending.sha) {
-      try { fs.unlinkSync(part); } catch { /* rien */ }
-      throw new Error("Le fichier téléchargé ne correspond pas à son empreinte : il a été supprimé, rien n'a été installé.");
-    }
+    if (hash.digest('hex') !== pending.sha) throw new Error("Le fichier téléchargé ne correspond pas à son empreinte : il a été supprimé, rien n'a été installé.");
     e.sender.send('update:progress', { done: total || done, total: total || done });
-    // 3. remplacement : l'exe en cours est renommé (Windows l'autorise), le nouveau prend sa place
-    try {
-      try { fs.unlinkSync(bak); } catch { /* pas d'ancienne sauvegarde */ }
-      fs.renameSync(old, bak);
-      fs.renameSync(part, old);
-    } catch (err) {
-      try { if (!fs.existsSync(old) && fs.existsSync(bak)) fs.renameSync(bak, old); } catch { /* rien */ }
-      try { fs.unlinkSync(part); } catch { /* rien */ }
-      throw err;
-    }
-    // 4. relance : la nouvelle version supprime la sauvegarde de l'ancienne
+    // 3. le nouvel exe prend son nom définitif (un fichier du même nom déjà présent, jamais en cours d'utilisation, est remplacé)
+    try { fs.unlinkSync(finalPath); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    fs.renameSync(part, finalPath); part = '';
+    // 4. relance : la nouvelle version supprime l'ancienne une fois celle-ci fermée
     const { spawn } = require('child_process');
-    spawn(old, [], { detached: true, stdio: 'ignore' }).unref();
+    spawn(finalPath, ['--cockpit-remplace=' + old], { detached: true, stdio: 'ignore' }).unref();
     setTimeout(() => app.quit(), 400);
     return { ok: true };
   } catch (err) {
-    const msg = /EACCES|EPERM|EROFS|EBUSY/.test(String(err.code)) ? "Impossible de remplacer l'application (droits insuffisants ou fichier utilisé)." : (err.message || 'Échec de la mise à jour.');
+    if (part) { try { fs.unlinkSync(part); } catch { /* rien */ } }
+    const code = err && err.code ? ` (${err.code})` : '';
+    const perm = /EACCES|EPERM|EROFS|EBUSY/.test(String(err && err.code));
+    const msg = perm
+      ? `Impossible d'écrire à côté de l'application${code}. Déplace VPS-Cockpit dans un dossier à toi (par exemple Documents), puis relance-la.`
+      : `${(err && err.message) || 'Échec de la mise à jour.'}${code}`;
     return { ok: false, error: msg };
   }
 });
-// Après une mise à jour : on supprime la sauvegarde de l'ancien exe (et seulement elle).
+// Après une mise à jour : on supprime l'ancien exe (et seulement lui), dès qu'il est fermé.
 (function cleanupOld() {
   if (!exePath()) return;
-  const bak = exePath() + '.old';
-  try { fs.unlinkSync(exePath() + '.part'); } catch { /* rien */ }
-  if (!fs.existsSync(bak)) return;
+  const arg = process.argv.find((a) => a.startsWith('--cockpit-remplace='));
+  const target = arg ? U.safeOldExe(arg.slice('--cockpit-remplace='.length), exePath()) : null;
+  for (const stray of [exePath() + '.part']) { try { fs.unlinkSync(stray); } catch { /* rien */ } }
+  if (!target) return;
   let tries = 0;
   const t = setInterval(() => {
-    try { fs.unlinkSync(bak); clearInterval(t); } catch (err) { if (err.code === 'ENOENT' || ++tries > 20) clearInterval(t); }
+    try { fs.unlinkSync(target); clearInterval(t); } catch (err) { if (err.code === 'ENOENT' || ++tries > 40) clearInterval(t); }
   }, 1500);
 })();
 

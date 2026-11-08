@@ -19,7 +19,7 @@ function pickRelease(repo, rel) {
   const m = exe && /^sha256:([A-Fa-f0-9]{64})$/.exec(String(exe.digest || ''));
   if (!okUrl(exe) || !m) return { incomplete: true };
   const publishedAt = Date.parse(rel.published_at || rel.created_at || '') || 0;
-  return { version, exeUrl: exe.browser_download_url, sha: m[1].toLowerCase(), size: Number(exe.size) || 0, publishedAt };
+  return { version, exeName: exe.name, exeUrl: exe.browser_download_url, sha: m[1].toLowerCase(), size: Number(exe.size) || 0, publishedAt };
 }
 
 // Extrait l'empreinte SHA-256 d'un fichier « .sha256 » (format « hex  nom » ou « hex » seul).
@@ -32,4 +32,14 @@ function parseSha(text) {
 // (ça évite de « revenir en arrière » vers une vieille version publiée).
 const isNewer = ({ localSha, remoteSha, publishedAt, localMtime }) => !!remoteSha && remoteSha !== localSha && publishedAt > localMtime;
 
-module.exports = { validRepo, pickRelease, parseSha, isNewer, EXE_RE };
+// L'ancien exe à supprimer après une mise à jour : même dossier que le nouveau, nom VPS-Cockpit*.exe, et différent du nouveau.
+const path = require('path');
+function safeOldExe(oldPath, ownPath) {
+  if (!oldPath || !ownPath) return null;
+  const a = path.win32.parse(String(oldPath)), b = path.win32.parse(String(ownPath));
+  if (!/^VPS-Cockpit[A-Za-z0-9._ -]*\.exe$/i.test(a.base)) return null;
+  if (a.dir.toLowerCase() !== b.dir.toLowerCase() || a.base.toLowerCase() === b.base.toLowerCase()) return null;
+  return String(oldPath);
+}
+
+module.exports = { safeOldExe, validRepo, pickRelease, parseSha, isNewer, EXE_RE };
