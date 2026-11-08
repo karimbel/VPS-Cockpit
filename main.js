@@ -85,16 +85,13 @@ ipcMain.handle('update:check', async () => {
     if (!res.ok) { clearTimeout(to); return { ok: false, error: `GitHub a répondu avec une erreur (${res.status}). Réessaie plus tard.` }; }
     const info = U.pickRelease(repo, await res.json());
     if (!info) { clearTimeout(to); return { ok: true, upToDate: true }; }
-    if (info.incomplete) { clearTimeout(to); return { ok: false, error: `La publication ne contient pas les deux fichiers attendus : ${U.EXE_NAME} et ${U.EXE_NAME}.sha256.` }; }
-    const shaRes = await net.fetch(info.shaUrl, { signal: ctrl.signal, headers: { 'User-Agent': 'VPS-Cockpit' } });
     clearTimeout(to);
-    if (!shaRes.ok) return { ok: false, error: "Le fichier d'empreinte (.sha256) est introuvable." };
-    const remoteSha = U.parseSha((await shaRes.text()).slice(0, 2000));
-    if (!remoteSha) return { ok: false, error: "Le fichier d'empreinte (.sha256) est illisible." };
+    if (info.incomplete) return { ok: false, error: "La publication ne contient pas d'exe nommé VPS-Cockpit-vX.Y.Z.exe avec son empreinte." };
+    const remoteSha = info.sha;
     const localSha = await hashFile(exePath());
     const localMtime = fs.statSync(exePath()).mtimeMs;
     if (!U.isNewer({ localSha, remoteSha, publishedAt: info.publishedAt, localMtime })) return { ok: true, upToDate: true };
-    pending = { ...info, sha: remoteSha };
+    pending = { ...info };
     return { ok: true, upToDate: false, size: info.size };
   } catch (e) {
     return { ok: false, error: e.name === 'AbortError' ? 'GitHub ne répond pas (délai dépassé).' : 'Impossible de joindre GitHub. Vérifie ta connexion.' };
