@@ -1,0 +1,39 @@
+# Fabrique l'exe Windows et le publie sur GitHub (Releases) à chaque envoi du code sur la branche main.
+# VPS-Cockpit le reconnaît ensuite tout seul comme une mise à jour. Chaque release est nommée avec une version (v0.3.N) calculée toute seule.
+name: Publier VPS-Cockpit
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installer les dépendances
+        run: npm install --no-audit --no-fund
+      - name: Fixer la version (v0.3.N, N = numéro de fabrication)
+        shell: bash
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=p.version.split('.').slice(0,2).join('.')+'.${{ github.run_number }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: Construire l'exe
+        run: npx electron-builder --win portable --x64 --publish never
+      - name: Publier la release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "v" + (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Copy-Item dist/VPS-Cockpit.exe "dist/VPS-Cockpit-$v.exe"
+          gh release create $v "dist/VPS-Cockpit-$v.exe" --title "VPS-Cockpit $v" --notes "Mise à jour automatique" --latest
