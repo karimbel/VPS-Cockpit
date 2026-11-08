@@ -1,5 +1,5 @@
 # Fabrique l'exe Windows et le publie sur GitHub (Releases) à chaque envoi du code sur la branche main.
-# VPS-Cockpit le reconnaît ensuite tout seul comme une mise à jour. Aucun numéro de version à gérer.
+# VPS-Cockpit le reconnaît ensuite tout seul comme une mise à jour. Chaque release est nommée avec une version (v0.3.N) calculée toute seule.
 name: Publier VPS-Cockpit
 
 on:
@@ -35,4 +35,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "build-${{ github.run_number }}" dist/VPS-Cockpit.exe dist/VPS-Cockpit.exe.sha256 --title "VPS-Cockpit" --notes "Mise à jour automatique" --latest
+        run: |
+          $base = ((Get-Content package.json -Raw | ConvertFrom-Json).version -split '\.')[0..1] -join '.'
+          $v = "v$base.${{ github.run_number }}"
+          gh release create $v dist/VPS-Cockpit.exe dist/VPS-Cockpit.exe.sha256 --title "VPS-Cockpit $v" --notes "Mise à jour automatique" --latest
