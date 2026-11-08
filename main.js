@@ -64,7 +64,7 @@ function hashFile(file) {
   });
 }
 
-ipcMain.handle('update:info', () => ({ repo: getRepo(), mode: getMode(), portable: !!exePath() }));
+ipcMain.handle('update:info', () => ({ version: app.getVersion(), repo: getRepo(), mode: getMode(), portable: !!exePath() }));
 ipcMain.handle('update:setMode', (_e, mode) => { const d = loadData(); d.updateMode = mode === 'manual' ? 'manual' : 'auto'; saveData(d); return { ok: true, mode: getMode() }; });
 ipcMain.handle('update:setRepo', (_e, repo) => {
   const r = String(repo || '').trim().replace(/^https:\/\/github\.com\//i, '').replace(/\/+$/, '');
@@ -84,15 +84,15 @@ ipcMain.handle('update:check', async () => {
     if (res.status === 404) { clearTimeout(to); return { ok: false, error: `Aucune mise à jour publiée sur « ${repo} » (ou le dépôt est privé ou introuvable).` }; }
     if (!res.ok) { clearTimeout(to); return { ok: false, error: `GitHub a répondu avec une erreur (${res.status}). Réessaie plus tard.` }; }
     const info = U.pickRelease(repo, await res.json());
-    if (!info) { clearTimeout(to); return { ok: true, upToDate: true }; }
+    if (!info) { clearTimeout(to); return { ok: true, upToDate: true, current: app.getVersion() }; }
     clearTimeout(to);
     if (info.incomplete) return { ok: false, error: "La publication ne contient pas d'exe nommé VPS-Cockpit-vX.Y.Z.exe avec son empreinte." };
     const remoteSha = info.sha;
     const localSha = await hashFile(exePath());
     const localMtime = fs.statSync(exePath()).mtimeMs;
-    if (!U.isNewer({ localSha, remoteSha, publishedAt: info.publishedAt, localMtime })) return { ok: true, upToDate: true };
+    if (!U.isNewer({ localSha, remoteSha, publishedAt: info.publishedAt, localMtime })) return { ok: true, upToDate: true, current: app.getVersion() };
     pending = { ...info };
-    return { ok: true, upToDate: false, size: info.size };
+    return { ok: true, upToDate: false, size: info.size, version: info.version, current: app.getVersion() };
   } catch (e) {
     return { ok: false, error: e.name === 'AbortError' ? 'GitHub ne répond pas (délai dépassé).' : 'Impossible de joindre GitHub. Vérifie ta connexion.' };
   }

@@ -24,6 +24,9 @@ jobs:
           node-version: 22
       - name: Installer les dépendances
         run: npm install --no-audit --no-fund
+      - name: Fixer la version (v0.3.N, N = numéro de fabrication)
+        shell: bash
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=p.version.split('.').slice(0,2).join('.')+'.${{ github.run_number }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: Construire l'exe
         run: npx electron-builder --win portable --x64 --publish never
       - name: Publier la release
@@ -31,7 +34,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $base = ((Get-Content package.json -Raw | ConvertFrom-Json).version -split '\.')[0..1] -join '.'
-          $v = "v$base.${{ github.run_number }}"
+          $v = "v" + (Get-Content package.json -Raw | ConvertFrom-Json).version
           Copy-Item dist/VPS-Cockpit.exe "dist/VPS-Cockpit-$v.exe"
           gh release create $v "dist/VPS-Cockpit-$v.exe" --title "VPS-Cockpit $v" --notes "Mise à jour automatique" --latest

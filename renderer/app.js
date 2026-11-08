@@ -838,7 +838,7 @@ async function installUpdate() {
   if (upd.busy) return;
   upd.busy = true; $('updBtns').hidden = true; $('updBar').hidden = false; $('updProg').hidden = false; $('updFill').style.width = '0%';
   $('updInstall').hidden = true;
-  $('updTitle').textContent = 'Mise à jour en cours';
+  $('updTitle').textContent = upd.newVer ? `Mise à jour vers v${upd.newVer}` : 'Mise à jour en cours';
   $('updText').textContent = 'Téléchargement…';
   const res = await api.updateInstall();
   if (res.ok) { $('updTitle').textContent = 'Mise à jour installée'; $('updText').textContent = "L'application redémarre…"; return; }
@@ -850,9 +850,11 @@ async function checkUpdate(auto, silent) {
   if (upd.busy) return;
   const r = await api.updateCheck();
   if (!r.ok) { if (!silent) updMsg(r.error, true); return; }
-  if (r.upToDate) { $('updInstall').hidden = true; if (!silent) updMsg("VPS-Cockpit est à jour."); return; }
-  if (auto) { updMsg('Une mise à jour est disponible : installation en cours.'); await installUpdate(); return; }
-  updMsg('Une mise à jour est disponible.'); $('updInstall').hidden = false;
+  if (r.current) $('updCur').textContent = 'v' + r.current;
+  if (r.upToDate) { $('updInstall').hidden = true; $('updNewBox').hidden = true; upd.newVer = ''; if (!silent) updMsg(`VPS-Cockpit est à jour (v${r.current}).`); return; }
+  upd.newVer = r.version || ''; $('updNew').textContent = upd.newVer ? 'v' + upd.newVer : ''; $('updNewBox').hidden = !upd.newVer;
+  if (auto) { updMsg(`La version v${r.version} est disponible : installation en cours.`); await installUpdate(); return; }
+  updMsg(`La version v${r.version} est disponible.`); $('updInstall').hidden = false;
 }
 document.querySelectorAll('#updModes .type').forEach((b) => {
   b.onclick = async () => { const r = await api.updateSetMode(b.dataset.mode); upd.mode = r.mode; showModes(); updMsg(r.mode === 'auto' ? "Mise à jour automatique activée : elle se fera au démarrage de l'application." : "Mise à jour manuelle activée : rien ne se fera sans toi."); };
@@ -873,7 +875,7 @@ api.onUpdateProgress((p) => {
 });
 (async () => {
   const i = await api.updateInfo();
-  upd.mode = i.mode; showModes(); $('updRepo').value = i.repo || '';
+  upd.mode = i.mode; showModes(); $('updCur').textContent = 'v' + i.version; $('updRepo').value = i.repo || '';
   if (!i.repo) updMsg("Aucun dépôt réglé : renseigne-le pour recevoir les mises à jour.");
   else if (i.mode === 'auto') await checkUpdate(true, true);
 })();
