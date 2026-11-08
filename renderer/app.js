@@ -861,11 +861,6 @@ document.querySelectorAll('#updModes .type').forEach((b) => {
 });
 $('updCheck').onclick = async () => { updMsg('Vérification…'); $('updInstall').hidden = true; await checkUpdate(false, false); };
 $('updInstall').onclick = () => installUpdate();
-$('updSave').onclick = async () => {
-  const r = await api.updateSetRepo($('updRepo').value);
-  if (!r.ok) return updMsg(r.error, true);
-  $('updRepo').value = r.repo; updMsg(r.repo ? 'Enregistré.' : "Effacé : l'application ne cherchera plus de mises à jour.");
-};
 $('updLater').onclick = () => { if (!upd.busy) $('updBar').hidden = true; };
 $('updGo').onclick = () => installUpdate();
 api.onUpdateProgress((p) => {
@@ -875,7 +870,6 @@ api.onUpdateProgress((p) => {
 });
 (async () => {
   const i = await api.updateInfo();
-  upd.mode = i.mode; showModes(); $('updCur').textContent = 'v' + i.version; $('updRepo').value = i.repo || '';
-  if (!i.repo) updMsg("Aucun dépôt réglé : renseigne-le pour recevoir les mises à jour.");
-  else if (i.mode === 'auto') await checkUpdate(true, true);
+  upd.mode = i.mode; showModes(); $('updCur').textContent = 'v' + i.version;
+  if (i.repo && i.mode === 'auto') await checkUpdate(true, true);
 })();
