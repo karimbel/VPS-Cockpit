@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+<title>VPS Cockpit</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================= CONNEXION ================= -->
+<main id="login" class="login">
+  <section class="login-side">
+    <div class="brand"><span class="dot a"></span>VPS Cockpit</div>
+    <h1>Pilote ton serveur sans taper une seule commande.</h1>
+    <div class="pt"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="18" x2="15" y2="18"/></svg><div><b>Rien à installer sur le serveur</b><span class="muted">Tout se passe depuis ton PC, par une connexion sécurisée.</span></div></div>
+    <div class="pt"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg><div><b>Sûr par construction</b><span class="muted">L'app n'envoie que des commandes prévues d'avance. Tes identifiants sont chiffrés par Windows.</span></div></div>
+    <div class="pt"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><circle cx="12" cy="17" r=".6"/></svg><div><b>Tout est expliqué</b><span class="muted">Chaque carte te dit ce qu'elle montre, si tout va bien, et quoi faire.</span></div></div>
+  </section>
+  <section class="login-main">
+    <form id="loginForm" class="card login-card" autocomplete="off">
+      <h2>Se connecter à mon serveur</h2>
+      <p class="muted mt4">Ces informations sont dans le mail ou l'espace client de ton hébergeur.</p>
+
+      <label class="f">Adresse du serveur (IP ou nom)
+        <input id="host" placeholder="ex. 203.0.113.10" required>
+      </label>
+      <div class="row ast">
+        <label class="f grow">Utilisateur
+          <input id="username" placeholder="root" required>
+        </label>
+        <label class="f w120">Port
+          <input id="port" type="number" value="22" min="1" max="65535">
+        </label>
+      </div>
+
+      <div class="seg" role="group" aria-label="Méthode de connexion">
+        <button type="button" id="modePw" class="on">Mot de passe</button>
+        <button type="button" id="modeKey">Clé SSH</button>
+      </div>
+
+      <div id="pwBox">
+        <label class="f">Mot de passe
+          <input id="password" type="password">
+        </label>
+      </div>
+      <div id="keyBox" hidden>
+        <label class="f">Fichier de clé privée
+          <div class="row">
+            <input id="keyPath" class="grow" placeholder="C:\Users\toi\.ssh\id_ed25519" readonly>
+            <button type="button" id="pickKey" class="btn mt6">Parcourir…</button>
+          </div>
+        </label>
+        <label class="f">Phrase secrète de la clé (seulement si elle en a une)
+          <input id="passphrase" type="password">
+        </label>
+      </div>
+
+      <label class="ck"><input id="remember" type="checkbox" checked> Mémoriser sur cet ordinateur (chiffré par Windows)</label>
+
+      <button class="btn pri full gobtn" id="goBtn" type="submit">Se connecter</button>
+      <p id="loginMsg" class="msg err" hidden></p>
+
+      <details class="help">
+        <summary>Quelle méthode choisir ?</summary>
+        <p><b>Mot de passe</b> : le plus simple, si ton hébergeur t'en a donné un.<br><b>Clé SSH</b> : un fichier qui remplace le mot de passe. Beaucoup d'hébergeurs ne permettent plus que ça pour « root ».</p>
+        <p>Si ça ne marche pas : essaie un autre utilisateur (ubuntu, debian) ou l'autre méthode. L'app te dira ce que le serveur accepte.</p>
+      </details>
+    </form>
+  </section>
+</main>
+
+<!-- ================= APPLICATION ================= -->
+<div id="dash" class="app" hidden>
+  <aside class="side">
+    <div class="brand"><span class="dot a"></span>VPS Cockpit</div>
+    <div class="srv"><span id="connDot" class="dot g"></span><div><b id="srvName">—</b><span id="srvSub" class="muted small">Connecté</span></div></div>
+
+    <nav class="nav" id="nav" aria-label="Navigation">
+      <button data-page="home" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Tableau de bord<span id="bHome" class="badge" hidden></span></button>
+      <button data-page="apps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/></svg>Mes apps<span id="bApps" class="badge r" hidden></span></button>
+      <button data-page="care"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3 17.7 6.3 21l6.3-6.3a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Entretien<span id="bCare" class="badge a" hidden></span></button>
+      <button data-page="services"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 3 3 8 12 13 21 8 12 3"/><polyline points="3 13 12 18 21 13"/></svg>Services<span id="bSvc" class="badge r" hidden></span></button>
+      <button data-page="logs"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>Journal</button>
+      <button data-page="help"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><circle cx="12" cy="17" r=".6"/></svg>Aide</button>
+      <button data-page="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>
+    </nav>
+
+    <div class="side-foot">
+      <p class="muted small p06">Rien n'est installé sur ton serveur : tout passe par une connexion sécurisée depuis ton PC.</p>
+      <button class="btn" id="disconnect">Se déconnecter</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="head">
+      <div><h1 id="pageTitle">Tableau de bord</h1><p id="pageSub"></p></div>
+      <div class="row"><span id="stamp" class="muted small"></span><button class="btn" id="refresh">Actualiser</button></div>
+    </header>
+
+    <div class="pages">
+
+      <!-- ACCUEIL -->
+      <section id="page-home" class="page">
+        <div id="hero"></div>
+        <div id="metrics" class="grid3"></div>
+        <div class="grid3">
+          <article class="card col" id="srvCard"></article>
+          <article class="card col" id="appsCard"></article>
+          <article class="card col" id="duCard"></article>
+        </div>
+      </section>
+
+      <!-- MES APPS -->
+      <section id="page-apps" class="page" hidden>
+        <form id="appForm" class="card col" autocomplete="off">
+          <div><h2 id="formTitle" class="s20">Ajouter une app à surveiller</h2><p id="formSub" class="muted mt2">Étape 1 : choisis ce que tu veux surveiller. Étape 2 : donne-lui un nom et indique où la trouver. Étape 3 (facultative) : indique la base de données qu'elle utilise.</p></div>
+          <div id="typeCards" class="grid4"></div>
+          <div class="row wrap aend">
+            <label class="f field m0"><span class="label">Nom affiché</span><input id="appName" placeholder="Ex. : Ma boutique" required></label>
+            <label class="f field m0 f2"><span class="label" id="targetLabel">Adresse du site</span><input id="appTarget" required></label>
+          </div>
+          <div class="row wrap aend">
+            <label class="f field m0 dbsel"><span class="label">Base de données utilisée (facultatif)</span>
+              <select id="appDb"><option value="">Aucune</option><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
+            <label class="f field m0" id="dbNameBox" hidden><span class="label">Nom de la base</span><input id="appDbName" list="dbNames" placeholder="Ex. : ma_base"><datalist id="dbNames"></datalist></label>
+            <button class="btn pri mh46" id="appSubmit" type="submit">Ajouter</button><button class="btn mh46" id="appCancel" type="button" hidden>Annuler</button>
+          </div>
+          <p id="dbHint" class="muted small" hidden></p>
+          <p id="appHint" class="muted small"></p>
+          <p id="appErr" class="msg err" hidden></p>
+        </form>
+
+        <section id="detectedCard" class="card col" hidden>
+          <div><h2 class="s20">Détectés sur ton serveur</h2><p class="muted mt2">Ces programmes et conteneurs tournent déjà chez toi mais ne sont pas encore surveillés. Un clic suffit : je remplis le reste.</p></div>
+          <div id="detected" class="row wrap"></div>
+        </section>
+
+        <div class="card row wrap legend">
+          <span class="label">Comment lire les pastilles</span>
+          <div class="row"><span class="pdot g"></span><span><b>Verte</b> : tout fonctionne</span></div>
+          <div class="row"><span class="pdot o"></span><span><b>Orange</b> : lent ou à vérifier</span></div>
+          <div class="row"><span class="pdot r"></span><span><b>Rouge</b> : ne répond plus</span></div>
+        </div>
+        <div id="appsEmpty" class="card"><p class="soft">Tu ne suis encore aucune app. Ajoute ton premier site avec le formulaire ci-dessus.</p></div>
+        <div id="pastilles" class="grid3"></div>
+      </section>
+
+      <!-- RÉGLAGES -->
+      <section id="page-settings" class="page" hidden>
+        <article class="card col">
+          <div><h2 class="s20">Mises à jour de l'application</h2><p class="muted mt2">Choisis comment VPS-Cockpit se met à jour.</p></div>
+          <div id="updModes" class="grid2">
+            <button class="type" type="button" data-mode="auto"><b>Automatique</b><span>Au démarrage, l'application cherche une mise à jour et l'installe toute seule. Tu n'as rien à faire.</span></button>
+            <button class="type" type="button" data-mode="manual"><b>Manuelle</b><span>Rien ne se fait sans toi : tu cliques sur « Vérifier » quand tu veux, puis sur « Installer ».</span></button>
+          </div>
+          <div class="row wrap aend">
+            <label class="f field m0"><span class="label">Où trouver les mises à jour (dépôt GitHub)</span><input id="updRepo" placeholder="nom-du-compte/nom-du-depot"></label>
+            <button class="btn mh46" id="updSave" type="button">Enregistrer</button>
+          </div>
+          <div class="row wrap">
+            <button class="btn pri" id="updCheck" type="button">Vérifier maintenant</button>
+            <button class="btn pri" id="updInstall" type="button" hidden>Installer la mise à jour</button>
+          </div>
+          <p id="updMsg" class="muted small"></p>
+        </article>
+      </section>
+
+      <!-- ENTRETIEN -->
+      <section id="page-care" class="page" hidden>
+        <div id="actCards" class="grid3"></div>
+        <div class="row runrow">
+          <section class="card col run1">
+            <div class="row"><h3 class="grow s19">Déroulé de la dernière action</h3><span id="runChip" class="chip info" hidden></span><button class="btn sm" id="copyRun" hidden>Copier</button></div>
+            <p class="muted">Ici tu vois en direct ce que fait le serveur. Tu n'as rien à comprendre : « Terminé » en vert, c'est bon.</p>
+            <pre id="runOut" class="console">Aucune action lancée pour l'instant.</pre>
+          </section>
+          <aside class="card col run2">
+            <h3 class="s19">Ma routine conseillée</h3>
+            <div class="tip"><div class="label">Chaque semaine</div><p>Mettre à jour le système.</p></div>
+            <div class="tip"><div class="label">Chaque mois</div><p>Nettoyer le disque.</p></div>
+            <div class="tip"><div class="label">Quand c'est demandé</div><p>Redémarrer le serveur.</p></div>
+            <p class="muted small">L'accueil te prévient dès qu'une de ces actions est utile : tu n'as pas à y penser.</p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- SERVICES -->
+      <section id="page-services" class="page" hidden>
+        <div class="card"><p class="soft">Un <b>service</b> est un programme qui tourne en permanence en arrière-plan (ton site web, ta base de données…). Un <b>conteneur Docker</b> est une application rangée dans sa « boîte » pour fonctionner seule. Redémarrer un service règle souvent un blocage, sans toucher à tes données.</p></div>
+        <div id="svcSummary" class="row wrap"></div>
+        <div id="failedCard"></div>
+        <article class="card col"><h3 class="s19">Conteneurs Docker</h3><div id="dockerList"></div></article>
+        <article class="card col">
+          <div class="row wrap"><h3 class="grow s19">Services actifs</h3>
+            <input class="w260" id="svcSearch" type="text" placeholder="Rechercher un service…" aria-label="Rechercher un service">
+            <label class="ck m0"><input id="svcTech" type="checkbox"> Afficher aussi les services techniques</label></div>
+          <div id="svcList"></div>
+        </article>
+      </section>
+
+      <!-- JOURNAL -->
+      <section id="page-logs" class="page" hidden>
+        <div class="card col f1">
+          <p class="soft">Le journal garde la trace des <b>erreurs</b> enregistrées par le serveur. Une ligne d'erreur n'est pas forcément grave : cherche surtout ce qui se répète ou ce qui est récent. Si tu veux de l'aide, copie le journal et colle-le à Claude.</p>
+          <div class="row wrap">
+            <input class="w280" id="logFilter" type="text" placeholder="Filtrer (ex. nginx, docker…)" aria-label="Filtrer le journal">
+            <span id="logCount" class="muted small grow"></span>
+            <button class="btn sm" id="copyLogs">Copier</button>
+            <button class="btn sm" id="refreshLogs">Actualiser</button>
+          </div>
+          <pre id="logsBox" class="console tall">Chargement…</pre>
+        </div>
+      </section>
+
+      <!-- AIDE -->
+      <section id="page-help" class="page" hidden>
+        <article class="card col">
+          <h2 class="s20">Un souci, une question à poser à Claude ?</h2>
+          <p class="soft">Ce rapport décrit ton serveur (système, services, Docker, ports, réglages de connexion). Il est en <b>lecture seule</b> et ne contient <b>aucun mot de passe ni clé</b>. Relis-le avant de le partager.</p>
+          <div class="row"><button class="btn pri" id="diagBtn">Créer un rapport de diagnostic</button><button class="btn" id="diagCopy" hidden>Copier le rapport</button></div>
+          <pre id="diagOut" class="console" hidden></pre>
+        </article>
+        <div class="grid3">
+          <article class="card gl"><h3>VPS</h3><p>Un ordinateur loué chez un hébergeur, allumé en permanence, qui héberge tes sites et tes apps.</p></article>
+          <article class="card gl"><h3>SSH</h3><p>La connexion sécurisée entre ton PC et le serveur. C'est elle qu'utilise cette application, à ta place.</p></article>
+          <article class="card gl"><h3>Service</h3><p>Un programme qui tourne en continu sur le serveur : Nginx, une base de données, etc.</p></article>
+          <article class="card gl"><h3>Conteneur Docker</h3><p>Une application rangée dans sa « boîte », isolée du reste du serveur.</p></article>
+          <article class="card gl"><h3>Port</h3><p>Une « porte » du serveur par laquelle passe un type de connexion (80 et 443 pour les sites, 22 pour SSH).</p></article>
+          <article class="card gl"><h3>Mise à jour</h3><p>Installe les nouvelles versions des logiciels et les correctifs de sécurité. À faire régulièrement.</p></article>
+          <article class="card gl"><h3>Redémarrage</h3><p>Éteint et rallume le serveur. Nécessaire après certaines mises à jour. Tes sites sont coupés environ 1 minute.</p></article>
+          <article class="card gl"><h3>Clé SSH</h3><p>Un fichier qui remplace le mot de passe pour se connecter. Plus sûr, et souvent obligatoire pour « root ».</p></article>
+          <article class="card gl"><h3>root / sudo</h3><p>« root » est l'administrateur du serveur. Avec un autre utilisateur, les actions d'entretien passent par « sudo » avec son mot de passe.</p></article>
+        </div>
+        <article class="card col">
+          <h2 class="s20">La connexion échoue, que faire ?</h2>
+          <div class="grid2">
+            <div class="tip"><b>« Identifiants refusés »</b><p>Essaie un autre utilisateur (ubuntu, debian), ou l'autre méthode (mot de passe ou clé). Beaucoup d'hébergeurs bloquent « root » par mot de passe.</p></div>
+            <div class="tip"><b>« Le serveur ne répond pas »</b><p>Vérifie l'adresse, le port (22 par défaut) et que le serveur est allumé dans l'espace client de ton hébergeur.</p></div>
+            <div class="tip"><b>« L'empreinte du serveur a changé »</b><p>Normal si tu as réinstallé le VPS. Sinon, refuse et contacte ton hébergeur.</p></div>
+            <div class="tip"><b>« sudo a refusé »</b><p>Connecte-toi avec « root », ou avec un utilisateur autorisé à utiliser sudo avec mot de passe.</p></div>
+          </div>
+        </article>
+        <article class="card col">
+          <h2 class="s20">Comment ça marche, et est-ce sûr ?</h2>
+          <p class="soft">L'application tourne sur ton PC et se connecte à ton serveur en SSH. Elle ne lance que des commandes prévues d'avance (statistiques, mise à jour, nettoyage, redémarrage d'un service…) : rien de libre. Les actions qui modifient quelque chose demandent toujours ta confirmation. Tes identifiants sont chiffrés par Windows et restent sur cet ordinateur. À la première connexion, l'empreinte du serveur est vérifiée pour éviter les faux serveurs.</p>
+        </article>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- fenêtre de confirmation -->
+<div id="overlay" class="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h3 id="mTitle"></h3>
+    <p id="mText"></p>
+    <div class="row jend">
+      <button class="btn" id="mNo">Annuler</button>
+      <button class="btn pri" id="mYes">Confirmer</button>
+    </div>
+  </div>
+</div>
+<div id="updBar" class="updbar" hidden>
+  <div class="col grow"><b id="updTitle"></b><p id="updText" class="muted small"></p><div id="updProg" class="prog" hidden><span id="updFill"></span></div></div>
+  <div class="row" id="updBtns" hidden><button class="btn pri sm" id="updGo" type="button">Réessayer</button><button class="btn sm" id="updLater" type="button">Fermer</button></div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
