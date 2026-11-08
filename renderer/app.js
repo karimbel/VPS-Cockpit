@@ -20,6 +20,8 @@ const ICONS = {
   shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
   alert: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><circle cx="12" cy="16.5" r=".6"/>',
   check: '<circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16 9"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 19 8"/>',
 };
 function icon(name, cls) {
   const s = document.createElementNS(NS, 'svg');
@@ -96,6 +98,25 @@ function ask({ title, text, yes = 'Confirmer', danger = false }) {
   });
 }
 
+
+// Fenêtre avec un champ texte. Retourne le texte saisi, ou null si annulé. Avec `expect`, il faut retaper exactement ce texte.
+function askInput({ title, text, yes = 'Valider', placeholder = '', value = '', danger = false, expect = null }) {
+  return new Promise((resolve) => {
+    const y = $('mYes'), n = $('mNo'), inp = $('mInput');
+    $('mTitle').textContent = title; $('mText').textContent = text;
+    y.textContent = yes; y.className = 'btn ' + (danger ? 'dng' : 'pri');
+    inp.hidden = false; inp.value = value; inp.placeholder = placeholder;
+    const ok = () => (expect === null ? inp.value.trim().length > 0 : inp.value.trim() === expect);
+    const sync = () => { y.disabled = !ok(); };
+    inp.oninput = sync; sync();
+    const onKey = (e) => { if (e.key === 'Escape') done(null); else if (e.key === 'Enter' && ok()) done(inp.value.trim()); };
+    const done = (v) => { $('overlay').hidden = true; inp.hidden = true; inp.oninput = null; y.disabled = false; y.onclick = n.onclick = null; document.removeEventListener('keydown', onKey); resolve(v); };
+    y.onclick = () => { if (ok()) done(inp.value.trim()); }; n.onclick = () => done(null);
+    document.addEventListener('keydown', onKey);
+    $('overlay').hidden = false; inp.focus(); inp.select();
+  });
+}
+
 // =====================================================================
 //  Connexion
 // =====================================================================
@@ -162,6 +183,7 @@ const PAGES = {
   home: ['Tableau de bord', "L'état de santé de ton serveur, en un coup d'œil."],
   apps: ['Mes apps', 'Vérifie en continu que tes sites et programmes fonctionnent. Contrôle automatique toutes les 30 secondes.'],
   care: ['Entretien', 'Les gestes qui gardent ton serveur à jour, propre et en bonne santé. Rien ne se lance sans ta confirmation.'],
+  files: ['Fichiers et bases', 'Crée, modifie ou supprime des dossiers, des fichiers et des bases de données, en toute sécurité.'],
   services: ['Services', 'Les programmes qui tournent en permanence sur ton serveur, et comment les redémarrer.'],
   logs: ['Journal', 'Les erreurs récentes enregistrées par le serveur.'],
   settings: ['Réglages', "Comment l'application se comporte."],
@@ -174,6 +196,7 @@ function setPage(name) {
   $('pageTitle').textContent = PAGES[name][0]; $('pageSub').textContent = PAGES[name][1];
   document.querySelector('.pages').scrollTop = 0;
   if (name === 'logs' && !S.logsLoaded) loadLogs();
+  if (name === 'files') openFiles();
 }
 $('nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setPage(b.dataset.page); });
 $('refresh').onclick = () => refreshAll();
@@ -826,6 +849,180 @@ $('diagCopy').onclick = async () => { await api.copy($('diagOut').textContent); 
   buildTypeCards();
 })();
 
+
+
+// =====================================================================
+//  FICHIERS ET BASES DE DONNÉES
+// =====================================================================
+const F = { path: '', entries: [], editing: null, creating: false };
+const WRITE_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
+const canWrite = (p) => WRITE_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
+const fmtSize = (n) => (n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(1).replace('.', ',')} Ko` : fmtBytes(n));
+const joinPath = (d, n) => (d === '/' ? '' : d) + '/' + n;
+const parentOf = (p) => { const i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); };
+const VALID_NAME = /^[A-Za-z0-9._@:+~ -]{1,120}$/;
+function showErr(id, msg) { const e = $(id); e.textContent = msg || ''; e.hidden = !msg; }
+function frErr(m) {
+  if (/Permission denied/i.test(m)) return "Droits insuffisants pour cette action. Connecte-toi en root, ou choisis un dossier qui t'appartient.";
+  if (/already exists|existe déjà/i.test(m)) return m.includes('existe') ? m : 'Cela existe déjà.';
+  if (/being accessed by other users/i.test(m)) return "Cette base est utilisée en ce moment. Arrête l'application qui s'en sert, puis réessaie.";
+  if (/No space left/i.test(m)) return "Le disque est plein : impossible d'écrire.";
+  return m;
+}
+// Lance une action fichier / base ; retourne { ok, msg, out }.
+async function fsRun(req) {
+  const r = await api.run(req);
+  if (!r.ok) return { ok: false, msg: r.error };
+  const e = /^ERR=(.*)$/m.exec(r.out || ''), o = /^OK=(.*)$/m.exec(r.out || '');
+  if (e) return { ok: false, msg: frErr(e[1]) };
+  if (req.op !== 'list' && req.op !== 'read' && !o) return { ok: false, msg: frErr((r.out || 'Réponse inattendue du serveur.').trim().slice(0, 300)) };
+  return { ok: true, msg: o ? o[1] : '', out: r.out || '' };
+}
+async function openFiles() {
+  if (!F.path) F.path = S.user === 'root' ? '/root' : `/home/${S.user}`;
+  await loadDir(F.path);
+  loadDbs().then(renderDbs);
+}
+async function loadDir(path) {
+  showErr('fErr', '');
+  $('fPath').value = path;
+  const r = await fsRun({ kind: 'fs', op: 'list', args: { path } });
+  if (!r.ok) { showErr('fErr', r.msg); return; }
+  const real = /^PATH=(.*)$/m.exec(r.out); F.path = real ? real[1] : path; $('fPath').value = F.path;
+  F.entries = r.out.split('\n').map((l) => l.split('|')).filter((p) => p.length >= 4 && /^[dfl]$/.test(p[0]))
+    .map((p) => ({ type: p[0], size: Number(p[1]) || 0, date: p[2], name: p.slice(3).join('|') }));
+  renderFiles();
+}
+function renderFiles() {
+  const box = clear($('fList'));
+  const writable = canWrite(F.path + '/x');
+  if (!F.entries.length) box.append(el('p', 'muted', 'Ce dossier est vide.'));
+  F.entries.forEach((e) => {
+    const full = joinPath(F.path, e.name);
+    const row = el('div', 'frow');
+    const nm = el('div', 'fname'); nm.append(icon(e.type === 'd' ? 'folder' : 'file'));
+    if (e.type === 'd') { const b = el('button', 'linkbtn name', e.name); b.onclick = () => loadDir(full); nm.append(b); }
+    else if (e.type === 'f' && canWrite(full)) { const b = el('button', 'linkbtn name', e.name); b.onclick = () => openEditor(full); nm.append(b); }
+    else nm.append(el('span', null, e.name + (e.type === 'l' ? ' (lien)' : '')));
+    const meta = el('div', 'fmeta', (e.type === 'd' ? 'Dossier' : fmtSize(e.size)) + ' · ' + e.date);
+    const acts = el('div', 'row');
+    if (canWrite(full)) {
+      if (e.type === 'f') { const m = el('button', 'linkbtn', 'Modifier'); m.onclick = () => openEditor(full); acts.append(m); }
+      const rn = el('button', 'linkbtn', 'Renommer'); rn.onclick = () => renameEntry(e, full); acts.append(rn);
+      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => deleteEntry(e, full); acts.append(dl);
+    }
+    row.append(nm, meta, acts); box.append(row);
+  });
+  $('fNewDir').disabled = $('fNewFile').disabled = !writable;
+  $('fNewDir').title = $('fNewFile').title = writable ? '' : 'Je ne crée rien dans ce dossier : il est protégé.';
+}
+$('fGo').onclick = () => loadDir($('fPath').value.trim() || '/');
+$('fPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('fGo').click(); });
+$('fUp').onclick = () => loadDir(parentOf(F.path));
+
+async function newDir() {
+  const n = await askInput({ title: 'Nouveau dossier', text: `Dans ${F.path}`, placeholder: 'nom-du-dossier', yes: 'Créer' });
+  if (n === null) return;
+  if (!VALID_NAME.test(n) || n === '.' || n === '..') return showErr('fErr', 'Nom invalide : lettres, chiffres et . _ - @ : + ~ espace seulement.');
+  const r = await fsRun({ kind: 'fs', op: 'mkdir', args: { path: joinPath(F.path, n) } });
+  if (!r.ok) return showErr('fErr', r.msg);
+  toast('Dossier créé.'); loadDir(F.path);
+}
+async function newFile() {
+  const n = await askInput({ title: 'Nouveau fichier', text: `Dans ${F.path}`, placeholder: 'notes.txt', yes: 'Créer' });
+  if (n === null) return;
+  if (!VALID_NAME.test(n) || n === '.' || n === '..') return showErr('fErr', 'Nom invalide : lettres, chiffres et . _ - @ : + ~ espace seulement.');
+  F.editing = joinPath(F.path, n); F.creating = true;
+  $('fEditTitle').textContent = `Nouveau fichier : ${n}`; $('fText').value = ''; showErr('fEditErr', '');
+  $('fEdit').hidden = false; $('fText').focus();
+}
+$('fNewDir').onclick = newDir; $('fNewFile').onclick = newFile;
+
+async function openEditor(path) {
+  showErr('fErr', '');
+  const r = await fsRun({ kind: 'fs', op: 'read', args: { path } });
+  if (!r.ok) return showErr('fErr', r.msg);
+  const i = r.out.indexOf('[contenu]\n');
+  F.editing = path; F.creating = false;
+  $('fEditTitle').textContent = `Modifier : ${path}`; $('fText').value = i >= 0 ? r.out.slice(i + 10) : '';
+  showErr('fEditErr', ''); $('fEdit').hidden = false;
+  $('fEdit').scrollIntoView({ behavior: 'smooth' });
+}
+$('fSave').onclick = async () => {
+  if (!F.editing) return;
+  if (!F.creating && !(await ask({ title: 'Enregistrer les modifications ?', text: `Le contenu de ${F.editing} sera remplacé par ce que tu as écrit. Il n'y a pas de retour en arrière : garde une copie si tu hésites.`, yes: 'Enregistrer' }))) return;
+  const r = await fsRun({ kind: 'fs', op: 'write', args: { path: F.editing, content: $('fText').value, create: F.creating } });
+  if (!r.ok) return showErr('fEditErr', r.msg);
+  toast('Fichier enregistré.');
+  if (F.creating) { F.creating = false; $('fEditTitle').textContent = `Modifier : ${F.editing}`; loadDir(F.path); }
+};
+$('fClose').onclick = () => { F.editing = null; F.creating = false; $('fEdit').hidden = true; };
+
+async function renameEntry(e, full) {
+  const n = await askInput({ title: `Renommer « ${e.name} »`, text: `Dans ${F.path}`, value: e.name, yes: 'Renommer' });
+  if (n === null || n === e.name) return;
+  if (!VALID_NAME.test(n) || n === '.' || n === '..') return showErr('fErr', 'Nom invalide : lettres, chiffres et . _ - @ : + ~ espace seulement.');
+  const r = await fsRun({ kind: 'fs', op: 'rename', args: { from: full, to: joinPath(F.path, n) } });
+  if (!r.ok) return showErr('fErr', r.msg);
+  toast('Renommé.'); loadDir(F.path);
+}
+async function deleteEntry(e, full) {
+  const isDir = e.type === 'd';
+  const n = await askInput({
+    title: `Supprimer ${isDir ? 'le dossier' : 'le fichier'} « ${e.name} » ?`,
+    text: (isDir ? 'Le dossier ET tout ce qu\'il contient seront supprimés. ' : '') + `Cette action est définitive : il n'y a pas de corbeille.\nPour confirmer, retape exactement : ${e.name}`,
+    placeholder: e.name, yes: 'Supprimer', danger: true, expect: e.name,
+  });
+  if (n === null) return;
+  const r = await fsRun({ kind: 'fs', op: 'delete', args: { path: full } });
+  if (!r.ok) return showErr('fErr', r.msg);
+  if (F.editing === full) $('fClose').click();
+  toast('Supprimé.'); loadDir(F.path);
+}
+
+// ----- bases de données -----
+const ENGINE_NAMES = { postgres: 'PostgreSQL', mysql: 'MySQL / MariaDB' };
+const PROTECTED_DB = ['postgres', 'template0', 'template1', 'mysql', 'information_schema', 'performance_schema', 'sys'];
+function renderDbs() {
+  const box = clear($('dbList'));
+  if (!S.dbs) { box.append(el('p', 'muted', "Je n'ai pas pu lire la liste des bases du serveur.")); return; }
+  ['postgres', 'mysql'].forEach((eng) => {
+    const info = S.dbs[eng];
+    box.append(el('div', 'label', ENGINE_NAMES[eng]));
+    if (info.state === 'none') { box.append(el('p', 'muted', 'Pas installé sur ce serveur.')); return; }
+    if (info.state === 'down') { box.append(el('p', 'muted', 'Installé, mais il ne répond pas pour le moment.')); return; }
+    const list = info.dbs.filter((d) => !PROTECTED_DB.includes(d.toLowerCase()));
+    if (!list.length) box.append(el('p', 'muted', 'Aucune base à toi pour le moment.'));
+    list.forEach((d) => {
+      const row = el('div', 'frow'); const nm = el('div', 'fname'); nm.append(icon('disk'), el('span', null, d));
+      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => dropDb(eng, d);
+      const acts = el('div', 'row'); acts.append(dl); row.append(nm, acts); box.append(row);
+    });
+  });
+}
+$('dbCreate').onclick = async () => {
+  showErr('dbErr', '');
+  const eng = $('dbEng').value, n = $('dbNew').value.trim();
+  if (!/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(n)) return showErr('dbErr', 'Nom invalide : il commence par une lettre, puis lettres, chiffres et _ (sans espace ni tiret).');
+  if (PROTECTED_DB.includes(n.toLowerCase())) return showErr('dbErr', 'Ce nom est réservé par le serveur.');
+  if (!(await ask({ title: `Créer la base « ${n} » ?`, text: `Une base vide ${ENGINE_NAME_OF(eng)} nommée « ${n} » sera créée sur ton serveur.`, yes: 'Créer' }))) return;
+  const r = await fsRun({ kind: 'dbadmin', op: 'create', engine: eng, name: n });
+  if (!r.ok) return showErr('dbErr', r.msg);
+  $('dbNew').value = ''; toast(`Base « ${n} » créée.`); await loadDbs(); renderDbs();
+};
+const ENGINE_NAME_OF = (e) => ENGINE_NAMES[e];
+async function dropDb(eng, n) {
+  showErr('dbErr', '');
+  const t = await askInput({
+    title: `Supprimer la base « ${n} » ?`,
+    text: `Toutes les données de cette base ${ENGINE_NAMES[eng]} seront effacées définitivement, sans retour en arrière. Vérifie qu'aucune application ne l'utilise.\nPour confirmer, retape exactement : ${n}`,
+    placeholder: n, yes: 'Supprimer la base', danger: true, expect: n,
+  });
+  if (t === null) return;
+  const r = await fsRun({ kind: 'dbadmin', op: 'drop', engine: eng, name: n });
+  if (!r.ok) return showErr('dbErr', r.msg);
+  toast(`Base « ${n} » supprimée.`); await loadDbs(); renderDbs();
+}
 
 // =====================================================================
 //  MISES À JOUR

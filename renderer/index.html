@@ -81,6 +81,7 @@
       <button data-page="apps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/></svg>Mes apps<span id="bApps" class="badge r" hidden></span></button>
       <button data-page="care"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3 17.7 6.3 21l6.3-6.3a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Entretien<span id="bCare" class="badge a" hidden></span></button>
       <button data-page="services"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 3 3 8 12 13 21 8 12 3"/><polyline points="3 13 12 18 21 13"/></svg>Services<span id="bSvc" class="badge r" hidden></span></button>
+      <button data-page="files"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Fichiers et bases</button>
       <button data-page="logs"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>Journal</button>
       <button data-page="help"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><circle cx="12" cy="17" r=".6"/></svg>Aide</button>
       <button data-page="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>
@@ -163,6 +164,37 @@
             <button class="btn pri" id="updInstall" type="button" hidden>Installer la mise à jour</button>
           </div>
           <p id="updMsg" class="muted small"></p>
+        </article>
+      </section>
+
+      <!-- FICHIERS ET BASES -->
+      <section id="page-files" class="page" hidden>
+        <article class="card col">
+          <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Parcours ton serveur, crée, modifie, renomme ou supprime des dossiers et des fichiers texte. Je ne modifie que tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp) : le reste du système est protégé. Tu peux regarder partout.</p></div>
+          <div class="row wrap aend">
+            <button class="btn mh46" id="fUp" type="button">Dossier parent</button>
+            <label class="f field m0 f2"><span class="label">Dossier ouvert</span><input id="fPath" placeholder="/home/ubuntu"></label>
+            <button class="btn pri mh46" id="fGo" type="button">Ouvrir</button>
+          </div>
+          <div class="row wrap"><button class="btn" id="fNewDir" type="button">Nouveau dossier</button><button class="btn" id="fNewFile" type="button">Nouveau fichier</button></div>
+          <p id="fErr" class="msg err" hidden></p>
+          <div id="fList" class="flist"></div>
+        </article>
+        <article id="fEdit" class="card col" hidden>
+          <h2 id="fEditTitle" class="s20"></h2>
+          <textarea id="fText" class="editor" spellcheck="false"></textarea>
+          <p id="fEditErr" class="msg err" hidden></p>
+          <div class="row"><button class="btn pri" id="fSave" type="button">Enregistrer</button><button class="btn" id="fClose" type="button">Fermer</button></div>
+        </article>
+        <article class="card col">
+          <div><h2 class="s20">Bases de données</h2><p class="muted mt2">Crée ou supprime une base. Les bases dont le serveur a besoin (postgres, mysql, etc.) sont protégées et n'apparaissent pas ici. Supprimer une base efface toutes ses données, et la suppression demande que tu retapes son nom.</p></div>
+          <div class="row wrap aend">
+            <label class="f field m0 dbsel"><span class="label">Type de base</span><select id="dbEng"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
+            <label class="f field m0"><span class="label">Nom de la nouvelle base</span><input id="dbNew" placeholder="ma_base"></label>
+            <button class="btn pri mh46" id="dbCreate" type="button">Créer la base</button>
+          </div>
+          <p id="dbErr" class="msg err" hidden></p>
+          <div id="dbList" class="flist"></div>
         </article>
       </section>
 
@@ -256,6 +288,7 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
     <h3 id="mTitle"></h3>
     <p id="mText"></p>
+    <input id="mInput" autocomplete="off" hidden>
     <div class="row jend">
       <button class="btn" id="mNo">Annuler</button>
       <button class="btn pri" id="mYes">Confirmer</button>

@@ -183,3 +183,13 @@ details.help p{margin-top:8px;color:var(--soft);font-size:14px}
 .updbar .col{gap:4px}
 .prog{height:8px;border-radius:99px;background:var(--bg);overflow:hidden;margin-top:6px}
 .prog span{display:block;height:100%;width:0;background:var(--amber);transition:width .2s}
+
+.flist{display:flex;flex-direction:column}
+.frow{display:flex;gap:14px;align-items:center;padding:10px 4px;border-top:1px solid var(--line);flex-wrap:wrap}
+.frow:first-child{border-top:0}
+.frow .fname{flex:1;min-width:200px;display:flex;gap:10px;align-items:center;overflow-wrap:anywhere}
+.frow .fname .i{width:20px;height:20px;flex:none;color:var(--amber)}
+.frow .fmeta{color:var(--muted);font-size:13px;min-width:130px}
+.frow .linkbtn.name{color:var(--text);text-decoration:none;font-weight:600;text-align:left}
+.editor{width:100%;min-height:340px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:14px;font:13px/1.5 ui-monospace,Consolas,monospace;tab-size:2}
+.modal input{width:100%;margin:0}

@@ -320,6 +320,8 @@ ipcMain.handle('run', async (e, req) => {
     let def;
     if (req.kind === 'service') def = R.serviceAction(req.verb, req.name);
     else if (req.kind === 'docker') def = R.dockerAction(req.verb, req.name);
+    else if (req.kind === 'fs') def = R.fsAction(req.op, req.args);
+    else if (req.kind === 'dbadmin') def = R.dbAdmin(req.op, req.engine, req.name);
     else def = R.ACTIONS[req.kind];
     if (!def) throw new Error('Action inconnue');
     const stream = !def.quiet;
