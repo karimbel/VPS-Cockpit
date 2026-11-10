@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, net, clipboard, Notification, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, safeStorage, net, clipboard, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -41,6 +41,7 @@ function createWindow() {
 }
 
 app.setAppUserModelId('VPS-Cockpit');
+Menu.setApplicationMenu(null); // pas de menu caché : Ctrl+R ne recharge plus la fenêtre (ce qui coupait la session)
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (conn) conn.end(); app.quit(); });
 

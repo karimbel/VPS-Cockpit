@@ -75,6 +75,7 @@ function frDocker(st) {
 }
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.hidden = false;
+  t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); // rejoue l'animation d'arrivée
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 4500);
 }
 function chip(kind, text) { return el('span', 'chip ' + kind, text); }
@@ -197,25 +198,45 @@ function setPage(name) {
   document.querySelectorAll('.page').forEach((p) => (p.hidden = p.id !== 'page-' + name));
   $('pageTitle').textContent = PAGES[name][0]; $('pageSub').textContent = PAGES[name][1];
   document.querySelector('.pages').scrollTop = 0;
+  const pg = $('page-' + name); pg.classList.remove('enter'); void pg.offsetWidth; pg.classList.add('enter');
+  clearTimeout(setPage._t); setPage._t = setTimeout(() => pg.classList.remove('enter'), 700);
   if (name === 'logs' && !S.logsLoaded) loadLogs();
   if (name === 'files') openFiles();
 }
 $('nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setPage(b.dataset.page); });
 $('refresh').onclick = () => refreshAll();
+document.querySelectorAll('#nav button').forEach((b, i) => { b.title = `${b.querySelector('.lbl').textContent} (Ctrl + ${i + 1})`; });
+// Raccourcis : F5 / Ctrl+R = actualiser, Ctrl+1…8 = pages du menu.
+document.addEventListener('keydown', (e) => {
+  if ($('dash').hidden || !$('overlay').hidden) return;
+  if (e.key === 'F5' || (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'r')) { e.preventDefault(); refreshAll(); return; }
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && /^[1-8]$/.test(e.key)) {
+    const b = document.querySelectorAll('#nav button')[Number(e.key) - 1];
+    if (b) { e.preventDefault(); setPage(b.dataset.page); }
+  }
+});
+// « Mis à jour il y a … » : tenu à jour chaque seconde.
+function showStamp() {
+  if (!S.stamp) { $('stamp').textContent = ''; return; }
+  const sec = Math.max(0, Math.round((Date.now() - S.stamp.getTime()) / 1000));
+  $('stamp').textContent = sec < 5 ? "Mis à jour à l'instant" : sec < 60 ? `Mis à jour il y a ${sec} s` : `Mis à jour il y a ${Math.floor(sec / 60)} min`;
+  $('stamp').title = 'Dernier contrôle à ' + S.stamp.toLocaleTimeString('fr-FR') + '. Contrôle automatique toutes les 30 secondes.';
+}
+setInterval(showStamp, 1000);
 
 // =====================================================================
 //  Chargement des données
 // =====================================================================
 async function refreshAll() {
   if (S.refreshing) return;
-  S.refreshing = true; $('refresh').disabled = true; $('refresh').textContent = 'Actualisation…';
+  S.refreshing = true; $('refresh').disabled = true; $('refresh').classList.add('busy'); $('refreshTxt').textContent = 'Actualisation…';
   try {
     await Promise.all([loadStats(), loadServices(), loadDbs()]);
     await checkApps();
     runAlerts();
     S.stamp = new Date();
   } finally {
-    S.refreshing = false; $('refresh').disabled = false; $('refresh').textContent = 'Actualiser';
+    S.refreshing = false; $('refresh').disabled = false; $('refresh').classList.remove('busy'); $('refreshTxt').textContent = 'Actualiser';
     renderAll();
   }
 }
@@ -241,7 +262,7 @@ async function loadDbs() {
 // =====================================================================
 function renderAll() {
   renderHome(); renderApps(); renderCare(); renderServices(); renderBadges();
-  $('stamp').textContent = S.stamp ? 'Mis à jour à ' + S.stamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+  showStamp();
 }
 function setBadge(id, n) { const b = $(id); b.hidden = !n; b.textContent = n; }
 function renderBadges() {
@@ -277,7 +298,10 @@ function renderHome() {
   const hero = clear($('hero'));
   const s = S.stats;
   if (!s) {
-    const c = el('section', 'card'); c.append(el('p', 'soft', 'Chargement des informations de ton serveur…')); hero.append(c); return;
+    const c = el('section', 'card col'); c.append(el('p', 'soft', 'Chargement des informations de ton serveur…'), el('div', 'skel w60'), el('div', 'skel w40')); hero.append(c);
+    const mk = clear($('metrics'));
+    for (let i = 0; i < 3; i++) { const k = el('article', 'card col'); k.append(el('div', 'skel w40'), el('div', 'skel ring'), el('div', 'skel'), el('div', 'skel w60')); mk.append(k); }
+    return;
   }
   const tasks = buildTasks();
   const bad = tasks.filter((t) => t.lvl === 'bad').length;
@@ -292,13 +316,15 @@ function renderHome() {
     : bad ? 'Un ou plusieurs points sont à traiter en priorité. Voici ce que je te conseille, du plus important au moins important.'
           : 'Ton serveur fonctionne normalement. Voici ce que je te conseille de faire, du plus important au moins important.'));
   body.append(head);
+  const tgrid = el('div', 'tasks' + (tasks.length > 1 ? ' two' : ''));
   tasks.forEach((t) => {
     const row = el('div', 'tip task');
-    row.append(chip(t.lvl === 'bad' ? 'bad' : 'warn', t.lvl === 'bad' ? 'Urgent' : 'À faire'));
-    const txt = el('div', 'grow'); txt.append(el('div', null, t.title), el('div', 'muted small', t.text)); txt.firstChild.style.fontWeight = '600';
-    const b = el('button', 'btn' + (t.lvl === 'bad' ? ' pri' : ''), t.cta); b.onclick = () => setPage(t.page);
-    row.append(txt, b); body.append(row);
+    const txt = el('div', 'grow'); const tl = el('div', 'ttl'); tl.append(chip(t.lvl === 'bad' ? 'bad' : 'warn', t.lvl === 'bad' ? 'Urgent' : 'À faire'), el('b', null, t.title));
+    txt.append(tl, el('div', 'muted small', t.text));
+    const b = el('button', 'btn sm' + (t.lvl === 'bad' ? ' pri' : ''), t.cta); b.onclick = () => setPage(t.page);
+    row.append(txt, b); tgrid.append(row);
   });
+  if (tasks.length) body.append(tgrid);
   card.append(body); hero.append(card);
 
   // cartes de mesure
@@ -382,11 +408,37 @@ async function runDu() {
   renderHome();
 }
 
+const RING_C = 2 * Math.PI * 52;
+const lastP = {}; // dernière valeur affichée de chaque jauge : l'animation repart de là, pas de zéro
 function metricCard(m) {
   const c = el('article', 'card col metric');
   const head = el('div', 'row'); const ic = el('div', 'ico'); ic.append(icon(m.icon));
   head.append(ic, el('h3', null, m.title), chip(m.st, CHIP_TXT[m.st]));
-  c.append(head, el('div', 'num', Math.round(m.p) + ' %'), bar(m.p, 'g-' + m.st), el('p', 'muted', m.detail), section("C'est quoi ?", m.what), tip('Mon avis', m.advice));
+  const to = Math.min(100, Math.max(0, m.p)), from = lastP[m.title] === undefined ? 0 : lastP[m.title];
+  lastP[m.title] = to;
+  const ring = el('div', 'ring');
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 120 120'); svg.setAttribute('aria-hidden', 'true');
+  const mkc = (cls) => { const k = document.createElementNS(NS, 'circle'); k.setAttribute('cx', '60'); k.setAttribute('cy', '60'); k.setAttribute('r', '52'); k.setAttribute('class', cls); return k; };
+  const arc = mkc('arc g-' + m.st);
+  arc.style.strokeDasharray = String(RING_C);
+  arc.style.strokeDashoffset = String(RING_C * (1 - from / 100));
+  svg.append(mkc('track'), arc);
+  const num = el('div', 'num', Math.round(from) + ' %');
+  ring.append(svg, num);
+  const side = el('div', 'col grow'); side.append(el('p', 'soft', m.detail));
+  const what = el('details', 'what'); what.append(el('summary', null, "C'est quoi ?"), el('p', 'soft', m.what));
+  const top = el('div', 'row gauge'); top.append(ring, side);
+  c.append(head, top, tip('Mon avis', m.advice), what);
+  if (from !== to) {
+    requestAnimationFrame(() => requestAnimationFrame(() => { arc.style.strokeDashoffset = String(RING_C * (1 - to / 100)); }));
+    const t0 = performance.now(), dur = 700;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - (1 - k) ** 3;
+      num.textContent = Math.round(from + (to - from) * e) + ' %';
+      if (k < 1 && num.isConnected) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
   return c;
 }
 
@@ -900,7 +952,22 @@ async function loadDir(path) {
     .map((p) => ({ type: p[0], size: Number(p[1]) || 0, date: p[2], name: p.slice(3).join('|') }));
   renderFiles();
 }
+function renderCrumbs() {
+  const nav = clear($('fCrumbs'));
+  const parts = F.path.split('/').filter(Boolean);
+  const mk = (label, path, last) => { const b = el('button', 'crumb' + (last ? ' on' : ''), label); b.type = 'button'; if (last) b.disabled = true; else b.onclick = () => loadDir(path); return b; };
+  nav.append(mk('Racine', '/', parts.length === 0));
+  let acc = '';
+  parts.forEach((p, i) => { acc += '/' + p; nav.append(el('span', 'sep', '›'), mk(p, acc, i === parts.length - 1)); });
+}
+document.querySelectorAll('#fTabs button').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('#fTabs button').forEach((x) => x.classList.toggle('on', x === b));
+    document.querySelectorAll('#page-files [data-pane]').forEach((p) => p.classList.toggle('tabhide', p.dataset.pane !== b.dataset.tab));
+  };
+});
 function renderFiles() {
+  renderCrumbs();
   const box = clear($('fList'));
   const writable = canWrite(F.path + '/x');
   if (!F.entries.length) box.append(el('p', 'muted', 'Ce dossier est vide.'));
@@ -917,7 +984,7 @@ function renderFiles() {
     if (canWrite(full)) {
       if (e.type === 'f') { const m = el('button', 'linkbtn', 'Modifier'); m.onclick = () => openEditor(full); acts.append(m); }
       const rn = el('button', 'linkbtn', 'Renommer'); rn.onclick = () => renameEntry(e, full); acts.append(rn);
-      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => deleteEntry(e, full); acts.append(dl);
+      const dl = el('button', 'linkbtn dng', 'Supprimer'); dl.onclick = () => deleteEntry(e, full); acts.append(dl);
     }
     row.append(nm, meta, acts); box.append(row);
   });
@@ -1034,7 +1101,7 @@ function renderDbs() {
     list.forEach((d) => {
       const row = el('div', 'frow'); const nm = el('div', 'fname'); nm.append(icon('disk'), el('span', null, d));
       const bk = el('button', 'linkbtn bkbtn', 'Sauvegarder'); bk.onclick = () => runBackup({ kind: 'db', engine: eng, name: d }, d);
-      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => dropDb(eng, d);
+      const dl = el('button', 'linkbtn dng', 'Supprimer'); dl.onclick = () => dropDb(eng, d);
       const acts = el('div', 'row'); acts.append(bk, dl); row.append(nm, acts); box.append(row);
     });
   });
@@ -1096,7 +1163,7 @@ function renderUsers() {
     if (!info.users.length) box.append(el('p', 'muted', 'Aucun utilisateur pour le moment.'));
     info.users.forEach((u) => {
       const row = el('div', 'frow'); const nm = el('div', 'fname'); nm.append(icon('disk'), el('span', null, u));
-      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => dropUser(eng, u);
+      const dl = el('button', 'linkbtn dng', 'Supprimer'); dl.onclick = () => dropUser(eng, u);
       const acts = el('div', 'row'); acts.append(dl); row.append(nm, acts); box.append(row);
     });
   });

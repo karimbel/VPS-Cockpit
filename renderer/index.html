@@ -73,30 +73,33 @@
 <!-- ================= APPLICATION ================= -->
 <div id="dash" class="app" hidden>
   <aside class="side">
-    <div class="brand"><span class="dot a"></span>VPS Cockpit</div>
-    <div class="srv"><span id="connDot" class="dot g"></span><div><b id="srvName">—</b><span id="srvSub" class="muted small">Connecté</span></div></div>
+    <div class="brand"><span class="dot a"></span><span class="lbl">VPS Cockpit</span></div>
+    <div class="srv"><span id="connDot" class="dot g live"></span><div class="lbl"><b id="srvName">—</b><span id="srvSub" class="muted small">Connecté</span></div></div>
 
     <nav class="nav" id="nav" aria-label="Navigation">
-      <button data-page="home" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Tableau de bord<span id="bHome" class="badge" hidden></span></button>
-      <button data-page="apps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/></svg>Mes apps<span id="bApps" class="badge r" hidden></span></button>
-      <button data-page="care"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3 17.7 6.3 21l6.3-6.3a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Entretien<span id="bCare" class="badge a" hidden></span></button>
-      <button data-page="services"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 3 3 8 12 13 21 8 12 3"/><polyline points="3 13 12 18 21 13"/></svg>Services<span id="bSvc" class="badge r" hidden></span></button>
-      <button data-page="files"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Fichiers et bases</button>
-      <button data-page="logs"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>Journal</button>
-      <button data-page="help"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><circle cx="12" cy="17" r=".6"/></svg>Aide</button>
-      <button data-page="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>
+      <div class="navlab">Surveiller</div>
+      <button data-page="home" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span class="lbl">Tableau de bord</span><span id="bHome" class="badge" hidden></span></button>
+      <button data-page="apps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/></svg><span class="lbl">Mes apps</span><span id="bApps" class="badge r" hidden></span></button>
+      <button data-page="services"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 3 3 8 12 13 21 8 12 3"/><polyline points="3 13 12 18 21 13"/></svg><span class="lbl">Services</span><span id="bSvc" class="badge r" hidden></span></button>
+      <button data-page="logs"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span class="lbl">Journal</span></button>
+      <div class="navlab">Agir</div>
+      <button data-page="care"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3 17.7 6.3 21l6.3-6.3a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg><span class="lbl">Entretien</span><span id="bCare" class="badge a" hidden></span></button>
+      <button data-page="files"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="lbl">Fichiers et bases</span></button>
+      <div class="navlab">Application</div>
+      <button data-page="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lbl">Réglages</span></button>
+      <button data-page="help"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><circle cx="12" cy="17" r=".6"/></svg><span class="lbl">Aide</span></button>
     </nav>
 
     <div class="side-foot">
-      <p class="muted small p06">Rien n'est installé sur ton serveur : tout passe par une connexion sécurisée depuis ton PC.</p>
-      <button class="btn" id="disconnect">Se déconnecter</button>
+      <p class="muted small p06 lbl">Rien n'est installé sur ton serveur : tout passe par une connexion sécurisée depuis ton PC.</p>
+      <button class="btn" id="disconnect" title="Se déconnecter"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><polyline points="10 8 6 12 10 16"/><line x1="6" y1="12" x2="16" y2="12"/></svg><span class="lbl">Se déconnecter</span></button>
     </div>
   </aside>
 
   <div class="main">
     <header class="head">
       <div><h1 id="pageTitle">Tableau de bord</h1><p id="pageSub"></p></div>
-      <div class="row"><span id="stamp" class="muted small"></span><button class="btn" id="refresh">Actualiser</button></div>
+      <div class="row"><span id="stamp" class="muted small"></span><button class="btn" id="refresh" title="Actualiser (F5)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><polyline points="4 3 4 8 9 8"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><polyline points="20 21 20 16 15 16"/></svg><span id="refreshTxt">Actualiser</span></button></div>
     </header>
 
     <div class="pages">
@@ -115,14 +118,12 @@
       <!-- MES APPS -->
       <section id="page-apps" class="page" hidden>
         <form id="appForm" class="card col" autocomplete="off">
-          <div><h2 id="formTitle" class="s20">Ajouter une app à surveiller</h2><p id="formSub" class="muted mt2">Étape 1 : choisis ce que tu veux surveiller. Étape 2 : donne-lui un nom et indique où la trouver. Étape 3 (facultative) : indique la base de données qu'elle utilise.</p></div>
+          <div><h2 id="formTitle" class="s20">Ajouter une app à surveiller</h2><p id="formSub" class="muted mt2">Choisis le type, donne un nom et l'endroit où la trouver. La base de données est facultative.</p></div>
           <div id="typeCards" class="grid4"></div>
           <div class="row wrap aend">
             <label class="f field m0"><span class="label">Nom affiché</span><input id="appName" placeholder="Ex. : Ma boutique" required></label>
             <label class="f field m0 f2"><span class="label" id="targetLabel">Adresse du site</span><input id="appTarget" required></label>
-          </div>
-          <div class="row wrap aend">
-            <label class="f field m0 dbsel"><span class="label">Base de données utilisée (facultatif)</span>
+            <label class="f field m0 dbsel"><span class="label">Base de données</span>
               <select id="appDb"><option value="">Aucune</option><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
             <label class="f field m0" id="dbNameBox" hidden><span class="label">Nom de la base</span><input id="appDbName" list="dbNames" placeholder="Ex. : ma_base"><datalist id="dbNames"></datalist></label>
             <button class="btn pri mh46" id="appSubmit" type="submit">Ajouter</button><button class="btn mh46" id="appCancel" type="button" hidden>Annuler</button>
@@ -132,13 +133,13 @@
           <p id="appErr" class="msg err" hidden></p>
         </form>
 
-        <section id="detectedCard" class="card col" hidden>
-          <div><h2 class="s20">Détectés sur ton serveur</h2><p class="muted mt2">Ces programmes et conteneurs tournent déjà chez toi mais ne sont pas encore surveillés. Un clic suffit : je remplis le reste.</p></div>
+        <section id="detectedCard" class="card col tight" hidden>
+          <div class="row wrap"><h2 class="s19">Détectés sur ton serveur</h2><p class="muted small grow">Pas encore surveillés. Un clic suffit : je remplis le reste.</p></div>
           <div id="detected" class="row wrap"></div>
         </section>
 
-        <div class="card row wrap legend">
-          <span class="label">Comment lire les pastilles</span>
+        <div class="row wrap legendbar">
+          <span class="label">Pastilles</span>
           <div class="row"><span class="pdot g"></span><span><b>Verte</b> : tout fonctionne</span></div>
           <div class="row"><span class="pdot o"></span><span><b>Orange</b> : lent ou à vérifier</span></div>
           <div class="row"><span class="pdot r"></span><span><b>Rouge</b> : ne répond plus</span></div>
@@ -149,6 +150,7 @@
 
       <!-- RÉGLAGES -->
       <section id="page-settings" class="page" hidden>
+        <div class="grid2 astart">
         <article class="card col">
           <div><h2 class="s20">Mises à jour de l'application</h2><p class="muted mt2">Choisis comment VPS-Cockpit se met à jour.</p></div>
           <div class="row wrap">
@@ -174,6 +176,7 @@
           <div class="row wrap"><button class="btn" id="alTest" type="button">Envoyer une notification de test</button></div>
           <p id="alMsg" class="muted small"></p>
         </article>
+        </div>
       </section>
 
       <!-- FICHIERS ET BASES -->
@@ -183,24 +186,29 @@
           <p id="bkText" class="soft"></p>
           <div class="row wrap"><button class="btn pri sm" id="bkShow" type="button" hidden>Afficher dans le dossier</button><button class="btn sm" id="bkClose" type="button" hidden>Fermer</button></div>
         </article>
-        <article class="card col">
-          <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Parcours ton serveur, crée, modifie, renomme ou supprime des dossiers et des fichiers texte. Je ne modifie que tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp) : le reste du système est protégé. Tu peux regarder partout.</p></div>
-          <div class="row wrap aend">
-            <button class="btn mh46" id="fUp" type="button">Dossier parent</button>
-            <label class="f field m0 f2"><span class="label">Dossier ouvert</span><input id="fPath" placeholder="/home/ubuntu"></label>
-            <button class="btn pri mh46" id="fGo" type="button">Ouvrir</button>
+        <div class="tabs" id="fTabs" role="tablist">
+          <button type="button" data-tab="files" class="on">Fichiers et dossiers</button>
+          <button type="button" data-tab="dbs">Bases de données</button>
+          <button type="button" data-tab="users">Utilisateurs des bases</button>
+        </div>
+        <article class="card col" data-pane="files">
+          <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Tu peux regarder partout. Je ne modifie que tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp) : le reste du système est protégé.</p></div>
+          <div class="row wrap">
+            <input id="fPath" class="grow m0 fpath" placeholder="/home/ubuntu" aria-label="Dossier ouvert">
+            <button class="btn pri" id="fGo" type="button">Ouvrir</button>
+            <button class="btn" id="fNewDir" type="button">Nouveau dossier</button><button class="btn" id="fNewFile" type="button">Nouveau fichier</button><button class="btn" id="fBackup" type="button">Sauvegarder ce dossier</button>
           </div>
-          <div class="row wrap"><button class="btn" id="fNewDir" type="button">Nouveau dossier</button><button class="btn" id="fNewFile" type="button">Nouveau fichier</button><button class="btn" id="fBackup" type="button">Sauvegarder ce dossier</button></div>
           <p id="fErr" class="msg err" hidden></p>
+          <div class="row"><button class="btn sm" id="fUp" type="button" title="Dossier parent">↑ Parent</button><nav id="fCrumbs" class="crumbs grow" aria-label="Chemin du dossier"></nav></div>
           <div id="fList" class="flist"></div>
         </article>
-        <article id="fEdit" class="card col" hidden>
+        <article id="fEdit" class="card col" data-pane="files" hidden>
           <h2 id="fEditTitle" class="s20"></h2>
           <textarea id="fText" class="editor" spellcheck="false"></textarea>
           <p id="fEditErr" class="msg err" hidden></p>
           <div class="row"><button class="btn pri" id="fSave" type="button">Enregistrer</button><button class="btn" id="fClose" type="button">Fermer</button></div>
         </article>
-        <article class="card col">
+        <article class="card col tabhide" data-pane="dbs">
           <div><h2 class="s20">Bases de données</h2><p class="muted mt2">Crée, sauvegarde ou supprime une base. Les bases dont le serveur a besoin (postgres, mysql, etc.) sont protégées et n'apparaissent pas ici. Supprimer une base efface toutes ses données, et la suppression demande que tu retapes son nom.</p></div>
           <div class="row wrap aend">
             <label class="f field m0 dbsel"><span class="label">Type de base</span><select id="dbEng"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
@@ -210,7 +218,7 @@
           <p id="dbErr" class="msg err" hidden></p>
           <div id="dbList" class="flist"></div>
         </article>
-        <article class="card col">
+        <article class="card col tabhide" data-pane="users">
           <div><h2 class="s20">Utilisateurs des bases</h2><p class="muted mt2">Une application a besoin d'un utilisateur et d'un mot de passe pour lire sa base. Ici tu en crées un avec accès complet à UNE base choisie : le mot de passe est généré pour toi et affiché une seule fois.</p></div>
           <div class="row wrap aend">
             <label class="f field m0 dbsel"><span class="label">Type de base</span><select id="uEng"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
@@ -253,9 +261,10 @@
 
       <!-- SERVICES -->
       <section id="page-services" class="page" hidden>
-        <div class="card"><p class="soft">Un <b>service</b> est un programme qui tourne en permanence en arrière-plan (ton site web, ta base de données…). Un <b>conteneur Docker</b> est une application rangée dans sa « boîte » pour fonctionner seule. Redémarrer un service règle souvent un blocage, sans toucher à tes données.</p></div>
+        <div class="card tight"><p class="soft small">Un <b>service</b> est un programme qui tourne en permanence en arrière-plan (ton site web, ta base de données…). Un <b>conteneur Docker</b> est une application rangée dans sa « boîte » pour fonctionner seule. Redémarrer un service règle souvent un blocage, sans toucher à tes données.</p></div>
         <div id="svcSummary" class="row wrap"></div>
         <div id="failedCard"></div>
+        <div class="grid2 astart svcgrid">
         <article class="card col"><h3 class="s19">Conteneurs Docker</h3><div id="dockerList"></div></article>
         <article class="card col">
           <div class="row wrap"><h3 class="grow s19">Services actifs</h3>
@@ -263,6 +272,7 @@
             <label class="ck m0"><input id="svcTech" type="checkbox"> Afficher aussi les services techniques</label></div>
           <div id="svcList"></div>
         </article>
+        </div>
       </section>
 
       <!-- JOURNAL -->
@@ -305,6 +315,14 @@
             <div class="tip"><b>« Le serveur ne répond pas »</b><p>Vérifie l'adresse, le port (22 par défaut) et que le serveur est allumé dans l'espace client de ton hébergeur.</p></div>
             <div class="tip"><b>« L'empreinte du serveur a changé »</b><p>Normal si tu as réinstallé le VPS. Sinon, refuse et contacte ton hébergeur.</p></div>
             <div class="tip"><b>« sudo a refusé »</b><p>Connecte-toi avec « root », ou avec un utilisateur autorisé à utiliser sudo avec mot de passe.</p></div>
+          </div>
+        </article>
+        <article class="card col">
+          <h2 class="s20">Raccourcis clavier</h2>
+          <div class="grid3">
+            <div class="tip"><b><kbd>F5</kbd> ou <kbd>Ctrl</kbd> + <kbd>R</kbd></b><p>Actualiser tout de suite.</p></div>
+            <div class="tip"><b><kbd>Ctrl</kbd> + <kbd>1</kbd> à <kbd>8</kbd></b><p>Ouvrir une page du menu, dans l'ordre.</p></div>
+            <div class="tip"><b><kbd>Échap</kbd></b><p>Fermer une fenêtre de confirmation.</p></div>
           </div>
         </article>
         <article class="card col">
