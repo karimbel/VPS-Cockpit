@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('api', {
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   onUpdateProgress: (fn) => ipcRenderer.on('update:progress', (_e, m) => fn(m)),
+  backup: (req) => ipcRenderer.invoke('backup:run', req),
+  backupShow: () => ipcRenderer.invoke('backup:show'),
+  onBackupProgress: (fn) => ipcRenderer.on('backup:progress', (_e, m) => fn(m)),
+  alertsGet: () => ipcRenderer.invoke('alerts:get'),
+  alertsSet: (on) => ipcRenderer.invoke('alerts:set', on),
+  notify: (title, body) => ipcRenderer.invoke('alerts:notify', { title, body }),
   onData: (fn) => ipcRenderer.on('run:data', (_e, m) => fn(m)),
   onClosed: (fn) => ipcRenderer.on('ssh:closed', () => fn()),
 });

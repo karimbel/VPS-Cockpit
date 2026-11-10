@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, net, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, net, clipboard, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -8,7 +8,7 @@ const { Client } = require('ssh2');
 const R = require('./remote');
 const U = require('./updater');
 const pkg = require('./package.json');
-const { Readable } = require('stream');
+const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 
 let win = null;
@@ -32,7 +32,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 960, minHeight: 640, show: false,
     backgroundColor: '#17110f', title: 'VPS Cockpit', autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.once('ready-to-show', () => { if (!process.env.COCKPIT_NO_MAXIMIZE) win.maximize(); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -40,6 +40,7 @@ function createWindow() {
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 }
 
+app.setAppUserModelId('VPS-Cockpit');
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (conn) conn.end(); app.quit(); });
 
@@ -321,6 +322,7 @@ ipcMain.handle('run', async (e, req) => {
     else if (req.kind === 'docker') def = R.dockerAction(req.verb, req.name);
     else if (req.kind === 'fs') def = R.fsAction(req.op, req.args);
     else if (req.kind === 'dbadmin') def = R.dbAdmin(req.op, req.engine, req.name);
+    else if (req.kind === 'dbuser') def = R.dbUserAdmin(req.op, req.engine, req.user, req.db, req.password);
     else def = R.ACTIONS[req.kind];
     if (!def) throw new Error('Action inconnue');
     const stream = !def.quiet;
@@ -330,6 +332,7 @@ ipcMain.handle('run', async (e, req) => {
     else if (req.kind === 'services') data = R.parseServices(r.out);
     else if (req.kind === 'diskusage') data = R.parseDiskUsage(r.out);
     else if (req.kind === 'dblist') data = R.parseDbList(r.out);
+    else if (req.kind === 'dbusers') data = R.parseDbUsers(r.out);
     if (def.sudo && !session.isRoot && /incorrect password|sorry, try again|is not in the sudoers/i.test(r.out)) {
       return { ok: false, error: 'sudo a refusé : mot de passe incorrect ou utilisateur non autorisé. Connecte-toi plutôt en root, ou avec un utilisateur sudo en mode mot de passe.' };
     }
@@ -337,6 +340,93 @@ ipcMain.handle('run', async (e, req) => {
   } catch (err) {
     return { ok: false, error: friendlyError(err) };
   }
+});
+
+// ---------- Sauvegardes : l'archive arrive en flux depuis le serveur et s'écrit directement sur le PC ----------
+const MAX_BACKUP = 2 * 1024 * 1024 * 1024; // 2 Go : au-delà on s'arrête (disque du PC protégé)
+let backing = false;
+let lastBackup = '';
+function execToFile(def, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    if (!conn) return reject(new Error('Non connecté'));
+    const cmd = R.wrap(def.script, { sudo: def.sudo, isRoot: session.isRoot });
+    const needPw = def.sudo && !session.isRoot;
+    conn.exec(cmd, (err, stream) => {
+      if (err) return reject(err);
+      const out = fs.createWriteStream(file);
+      let bytes = 0, errText = '', code = null, tooBig = false, diskErr = null, outClosed = false, chanClosed = false, aborted = false, last = 0;
+      // En cas d'arrêt volontaire (trop gros, disque plein) on n'attend pas la confirmation du serveur pour rendre la main.
+      const finish = () => { if (outClosed && (chanClosed || aborted)) resolve({ code, bytes, err: errText, tooBig, diskErr }); };
+      const count = new Transform({
+        transform(chunk, _enc, cb) {
+          bytes += chunk.length;
+          if (bytes > MAX_BACKUP) { tooBig = true; return cb(new Error('trop gros')); }
+          if (Date.now() - last > 250) { last = Date.now(); onProgress && onProgress(bytes); }
+          cb(null, chunk);
+        },
+      });
+      const abort = () => { aborted = true; try { stream.close(); } catch { /* déjà fermé */ } finish(); };
+      count.on('error', () => { abort(); out.destroy(); });
+      out.on('error', (e) => { diskErr = e; abort(); });
+      out.on('close', () => { outClosed = true; finish(); });
+      stream.on('exit', (c) => { code = c; });
+      stream.on('close', () => { chanClosed = true; if (!out.writableEnded && !out.destroyed) count.end(); finish(); });
+      stream.stderr.on('data', (b) => { if (errText.length < 2000) errText += b.toString('utf8'); });
+      stream.pipe(count).pipe(out);
+      if (needPw) stream.write((session.password || '') + '\n');
+    });
+  });
+}
+const pad2 = (n) => String(n).padStart(2, '0');
+ipcMain.handle('backup:run', async (e, req) => {
+  if (backing) return { ok: false, error: 'Une sauvegarde est déjà en cours.' };
+  let part = '';
+  try {
+    if (!conn) throw new Error('Non connecté');
+    const def = R.backupAction(req.kind, req);
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}_${pad2(d.getHours())}-${pad2(d.getMinutes())}`;
+    const pick = await dialog.showSaveDialog(win, {
+      title: 'Où enregistrer la sauvegarde ?',
+      defaultPath: path.join(app.getPath('documents'), def.fileName(stamp)),
+      filters: [{ name: 'Archive compressée', extensions: ['gz'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { ok: true, canceled: true };
+    backing = true;
+    const file = pick.filePath;
+    part = file + '.part';
+    const res = await execToFile(def, part, (b) => e.sender.send('backup:progress', { bytes: b }));
+    if (res.diskErr) throw new Error(`Impossible d'écrire sur ton PC (${res.diskErr.code || 'erreur'}). Choisis un autre emplacement.`);
+    if (res.tooBig) throw new Error('La sauvegarde dépasse 2 Go : elle a été arrêtée. Sauvegarde un dossier plus petit.');
+    if (def.sudo && !session.isRoot && /incorrect password|sorry, try again|is not in the sudoers/i.test(res.err)) {
+      throw new Error('sudo a refusé : mot de passe incorrect ou utilisateur non autorisé. Connecte-toi plutôt en root, ou avec un utilisateur sudo en mode mot de passe.');
+    }
+    if (res.code !== 0 || res.bytes === 0) {
+      const msg = res.err.replace(/\[sudo\][^\n]*\n?/g, '').trim().slice(0, 300);
+      throw new Error(msg || `La sauvegarde a échoué (code ${res.code === null ? 'inconnu' : res.code}).`);
+    }
+    fs.renameSync(part, file); part = '';
+    lastBackup = file;
+    return { ok: true, file, size: res.bytes, label: def.label };
+  } catch (err) {
+    if (part) { try { fs.unlinkSync(part); } catch { /* rien */ } }
+    return { ok: false, error: friendlyError(err) };
+  } finally { backing = false; }
+});
+ipcMain.handle('backup:show', () => { if (lastBackup && fs.existsSync(lastBackup)) { shell.showItemInFolder(lastBackup); return true; } return false; });
+
+// ---------- Alertes Windows ----------
+const alertsOn = () => loadData().alerts !== false;
+ipcMain.handle('alerts:get', () => ({ on: alertsOn(), supported: Notification.isSupported() }));
+ipcMain.handle('alerts:set', (_e, on) => { const d = loadData(); d.alerts = !!on; saveData(d); return { on: alertsOn() }; });
+ipcMain.handle('alerts:notify', (_e, n) => {
+  if (!alertsOn() || !Notification.isSupported()) return false;
+  const title = String((n && n.title) || '').slice(0, 100), body = String((n && n.body) || '').slice(0, 250);
+  if (!title) return false;
+  const note = new Notification({ title, body, silent: false });
+  note.on('click', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+  note.show();
+  return true;
 });
 
 // ---------- Vérification d'adresses web (depuis ton PC) ----------

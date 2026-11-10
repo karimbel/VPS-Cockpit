@@ -158,6 +158,7 @@ api.onClosed(() => {
   if ($('dash').hidden) return;
   const reboot = S.rebooting; S.rebooting = false;
   endSession();
+  if (!reboot) api.notify('Connexion perdue', "VPS-Cockpit ne peut plus surveiller ton serveur : la connexion a été coupée. Reconnecte-toi.");
   if (reboot) showMsg('Le serveur redémarre. Reconnecte-toi dans 1 à 2 minutes.', 'info');
   else showMsg('La connexion avec le serveur a été coupée.');
 });
@@ -166,6 +167,7 @@ function endSession() {
   clearInterval(pollTimer); pollTimer = null;
   $('dash').hidden = true; $('login').hidden = false;
   S.stats = null; S.res = []; S.du = null; S.logsLoaded = false; S.editIdx = null;
+  AL.fails = {}; AL.down = {}; closeUserResult();
 }
 
 function startSession() {
@@ -210,6 +212,7 @@ async function refreshAll() {
   try {
     await Promise.all([loadStats(), loadServices(), loadDbs()]);
     await checkApps();
+    runAlerts();
     S.stamp = new Date();
   } finally {
     S.refreshing = false; $('refresh').disabled = false; $('refresh').textContent = 'Actualiser';
@@ -857,6 +860,8 @@ $('diagCopy').onclick = async () => { await api.copy($('diagOut').textContent); 
 const F = { path: '', entries: [], editing: null, creating: false };
 const WRITE_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
 const canWrite = (p) => WRITE_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
+const BACKUP_ROOTS = [['/home', 1], ['/root', 0], ['/var/www', 0], ['/srv', 0], ['/opt', 0], ['/tmp', 1]];
+const canBackup = (p) => BACKUP_ROOTS.some(([r, d]) => (p === r ? d === 0 : p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= Math.max(d, 1)));
 const fmtSize = (n) => (n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(1).replace('.', ',')} Ko` : fmtBytes(n));
 const joinPath = (d, n) => (d === '/' ? '' : d) + '/' + n;
 const parentOf = (p) => { const i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); };
@@ -866,6 +871,8 @@ function frErr(m) {
   if (/Permission denied/i.test(m)) return "Droits insuffisants pour cette action. Connecte-toi en root, ou choisis un dossier qui t'appartient.";
   if (/already exists|existe déjà/i.test(m)) return m.includes('existe') ? m : 'Cela existe déjà.';
   if (/being accessed by other users/i.test(m)) return "Cette base est utilisée en ce moment. Arrête l'application qui s'en sert, puis réessaie.";
+  if (/1396|DROP USER failed/i.test(m)) return "Cet utilisateur n'existe pas (ou plus).";
+  if (/cannot be dropped because some objects depend on it/i.test(m)) return "Cet utilisateur possède encore des tables ou des droits ailleurs : je ne le supprime pas pour ne rien casser.";
   if (/No space left/i.test(m)) return "Le disque est plein : impossible d'écrire.";
   return m;
 }
@@ -881,7 +888,7 @@ async function fsRun(req) {
 async function openFiles() {
   if (!F.path) F.path = S.user === 'root' ? '/root' : `/home/${S.user}`;
   await loadDir(F.path);
-  loadDbs().then(renderDbs);
+  loadDbs().then(() => { renderDbs(); return loadUsers(); }).then(renderUsers);
 }
 async function loadDir(path) {
   showErr('fErr', '');
@@ -906,6 +913,7 @@ function renderFiles() {
     else nm.append(el('span', null, e.name + (e.type === 'l' ? ' (lien)' : '')));
     const meta = el('div', 'fmeta', (e.type === 'd' ? 'Dossier' : fmtSize(e.size)) + ' · ' + e.date);
     const acts = el('div', 'row');
+    if (e.type === 'd' && canBackup(full)) { const bk = el('button', 'linkbtn bkbtn', 'Sauvegarder'); bk.onclick = () => runBackup({ kind: 'dir', path: full }, e.name); acts.append(bk); }
     if (canWrite(full)) {
       if (e.type === 'f') { const m = el('button', 'linkbtn', 'Modifier'); m.onclick = () => openEditor(full); acts.append(m); }
       const rn = el('button', 'linkbtn', 'Renommer'); rn.onclick = () => renameEntry(e, full); acts.append(rn);
@@ -913,6 +921,8 @@ function renderFiles() {
     }
     row.append(nm, meta, acts); box.append(row);
   });
+  $('fBackup').disabled = !canBackup(F.path);
+  $('fBackup').title = canBackup(F.path) ? '' : 'Je ne sauvegarde que les dossiers de travail (/home/utilisateur, /root, /var/www, /srv, /opt, /tmp).';
   $('fNewDir').disabled = $('fNewFile').disabled = !writable;
   $('fNewDir').title = $('fNewFile').title = writable ? '' : 'Je ne crée rien dans ce dossier : il est protégé.';
 }
@@ -937,6 +947,8 @@ async function newFile() {
   $('fEdit').hidden = false; $('fText').focus();
 }
 $('fNewDir').onclick = newDir; $('fNewFile').onclick = newFile;
+$('fBackup').classList.add('bkbtn');
+$('fBackup').onclick = () => runBackup({ kind: 'dir', path: F.path }, F.path);
 
 async function openEditor(path) {
   showErr('fErr', '');
@@ -980,6 +992,32 @@ async function deleteEntry(e, full) {
   toast('Supprimé.'); loadDir(F.path);
 }
 
+// ----- sauvegardes -----
+const BK = { busy: false };
+function bkSay(title, text, { show = false, close = false } = {}) {
+  $('bkCard').hidden = false; $('bkTitle').textContent = title; $('bkText').textContent = text;
+  $('bkShow').hidden = !show; $('bkClose').hidden = !close;
+}
+$('bkShow').onclick = () => api.backupShow();
+$('bkClose').onclick = () => { $('bkCard').hidden = true; };
+api.onBackupProgress((p) => { if (BK.busy) $('bkText').textContent = `${fmtSize(p.bytes)} reçus sur ton PC…`; });
+async function runBackup(req, what) {
+  if (BK.busy) return toast('Une sauvegarde est déjà en cours.');
+  BK.busy = true;
+  bkSay('Sauvegarde en cours', "Choisis où l'enregistrer sur ton PC…");
+  document.querySelectorAll('.bkbtn').forEach((b) => (b.disabled = true));
+  try {
+    const r = await api.backup(req);
+    if (r.canceled) { $('bkCard').hidden = true; return; }
+    if (!r.ok) return bkSay('La sauvegarde a échoué', frErr(r.error), { close: true });
+    bkSay('Sauvegarde terminée', `« ${what} » a été enregistré sur ton PC (${fmtSize(r.size)}) : ${r.file}`, { show: true, close: true });
+    toast('Sauvegarde terminée.');
+  } finally {
+    BK.busy = false;
+    document.querySelectorAll('.bkbtn').forEach((b) => (b.disabled = false));
+  }
+}
+
 // ----- bases de données -----
 const ENGINE_NAMES = { postgres: 'PostgreSQL', mysql: 'MySQL / MariaDB' };
 const PROTECTED_DB = ['postgres', 'template0', 'template1', 'mysql', 'information_schema', 'performance_schema', 'sys'];
@@ -995,8 +1033,9 @@ function renderDbs() {
     if (!list.length) box.append(el('p', 'muted', 'Aucune base à toi pour le moment.'));
     list.forEach((d) => {
       const row = el('div', 'frow'); const nm = el('div', 'fname'); nm.append(icon('disk'), el('span', null, d));
+      const bk = el('button', 'linkbtn bkbtn', 'Sauvegarder'); bk.onclick = () => runBackup({ kind: 'db', engine: eng, name: d }, d);
       const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => dropDb(eng, d);
-      const acts = el('div', 'row'); acts.append(dl); row.append(nm, acts); box.append(row);
+      const acts = el('div', 'row'); acts.append(bk, dl); row.append(nm, acts); box.append(row);
     });
   });
 }
@@ -1008,7 +1047,7 @@ $('dbCreate').onclick = async () => {
   if (!(await ask({ title: `Créer la base « ${n} » ?`, text: `Une base vide ${ENGINE_NAME_OF(eng)} nommée « ${n} » sera créée sur ton serveur.`, yes: 'Créer' }))) return;
   const r = await fsRun({ kind: 'dbadmin', op: 'create', engine: eng, name: n });
   if (!r.ok) return showErr('dbErr', r.msg);
-  $('dbNew').value = ''; toast(`Base « ${n} » créée.`); await loadDbs(); renderDbs();
+  $('dbNew').value = ''; toast(`Base « ${n} » créée.`); await loadDbs(); renderDbs(); fillUserDbs();
 };
 const ENGINE_NAME_OF = (e) => ENGINE_NAMES[e];
 async function dropDb(eng, n) {
@@ -1021,8 +1060,114 @@ async function dropDb(eng, n) {
   if (t === null) return;
   const r = await fsRun({ kind: 'dbadmin', op: 'drop', engine: eng, name: n });
   if (!r.ok) return showErr('dbErr', r.msg);
-  toast(`Base « ${n} » supprimée.`); await loadDbs(); renderDbs();
+  toast(`Base « ${n} » supprimée.`); await loadDbs(); renderDbs(); fillUserDbs();
 }
+
+// ----- utilisateurs de bases -----
+const U = { pass: '', url: '' };
+function genPassword(n = 24) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const out = []; const buf = new Uint8Array(64);
+  while (out.length < n) { crypto.getRandomValues(buf); for (const b of buf) { if (b < 248 && out.length < n) out.push(A[b % 62]); } } // 248 = 62 × 4 : pas de biais
+  return out.join('');
+}
+async function loadUsers() {
+  const r = await api.run({ kind: 'dbusers' });
+  S.users = r.ok ? r.data : null;
+}
+function fillUserDbs() {
+  const sel = $('uDb'); const eng = $('uEng').value; const keep = sel.value;
+  sel.replaceChildren();
+  const info = S.dbs && S.dbs[eng];
+  const list = info && info.state === 'up' ? info.dbs.filter((d) => !PROTECTED_DB.includes(d.toLowerCase())) : [];
+  if (!list.length) { const o = el('option', null, 'Aucune base disponible'); o.value = ''; sel.append(o); return; }
+  list.forEach((d) => { const o = el('option', null, d); o.value = d; sel.append(o); });
+  if (list.includes(keep)) sel.value = keep;
+}
+function renderUsers() {
+  fillUserDbs();
+  const box = clear($('uList'));
+  if (!S.users) { box.append(el('p', 'muted', "Je n'ai pas pu lire la liste des utilisateurs du serveur.")); return; }
+  ['postgres', 'mysql'].forEach((eng) => {
+    const info = S.users[eng];
+    box.append(el('div', 'label', ENGINE_NAMES[eng]));
+    if (info.state === 'none') { box.append(el('p', 'muted', 'Pas installé sur ce serveur.')); return; }
+    if (info.state === 'down') { box.append(el('p', 'muted', 'Installé, mais il ne répond pas pour le moment.')); return; }
+    if (!info.users.length) box.append(el('p', 'muted', 'Aucun utilisateur pour le moment.'));
+    info.users.forEach((u) => {
+      const row = el('div', 'frow'); const nm = el('div', 'fname'); nm.append(icon('disk'), el('span', null, u));
+      const dl = el('button', 'linkbtn', 'Supprimer'); dl.onclick = () => dropUser(eng, u);
+      const acts = el('div', 'row'); acts.append(dl); row.append(nm, acts); box.append(row);
+    });
+  });
+}
+$('uEng').onchange = fillUserDbs;
+function closeUserResult() { U.pass = ''; U.url = ''; $('uResPass').textContent = ''; $('uResult').hidden = true; }
+$('uResClose').onclick = closeUserResult;
+$('uCopyPass').onclick = async () => { await api.copy(U.pass); toast('Mot de passe copié.'); };
+$('uCopyUrl').onclick = async () => { await api.copy(U.url); toast('Adresse de connexion copiée.'); };
+$('uCreate').onclick = async () => {
+  showErr('uErr', ''); closeUserResult();
+  const eng = $('uEng').value, db = $('uDb').value, u = $('uName').value.trim();
+  if (!db) return showErr('uErr', 'Choisis une base : crée-en une d\'abord dans la carte du dessus.');
+  if (!/^[a-z][a-z0-9_]{0,30}$/.test(u)) return showErr('uErr', "Nom invalide : minuscules, chiffres et _ seulement, il commence par une lettre (31 caractères maximum).");
+  if (['postgres', 'root', 'mysql', 'mariadb', 'admin', 'public', 'debian'].includes(u) || /^pg_/.test(u)) return showErr('uErr', 'Ce nom est réservé par le serveur.');
+  if (!(await ask({ title: `Créer l'utilisateur « ${u} » ?`, text: `Il aura un accès complet à la base « ${db} » (${ENGINE_NAMES[eng]}), et à aucune autre. Son mot de passe sera généré puis affiché une seule fois.`, yes: 'Créer' }))) return;
+  const pw = genPassword();
+  const r = await fsRun({ kind: 'dbuser', op: 'create', engine: eng, user: u, db, password: pw });
+  if (!r.ok) return showErr('uErr', r.msg);
+  U.pass = pw;
+  U.url = eng === 'postgres' ? `postgresql://${u}:${pw}@localhost:5432/${db}` : `mysql://${u}:${pw}@localhost:3306/${db}`;
+  $('uResUser').textContent = u; $('uResPass').textContent = pw; $('uResult').hidden = false;
+  $('uName').value = ''; await loadUsers(); renderUsers();
+  $('uResult').scrollIntoView({ behavior: 'smooth' });
+};
+async function dropUser(eng, u) {
+  showErr('uErr', '');
+  const t = await askInput({
+    title: `Supprimer l'utilisateur « ${u} » ?`,
+    text: `Les applications qui se connectent avec « ${u} » n'y arriveront plus. Les données de la base ne sont pas touchées.\nPour confirmer, retape exactement : ${u}`,
+    placeholder: u, yes: "Supprimer l'utilisateur", danger: true, expect: u,
+  });
+  if (t === null) return;
+  const r = await fsRun({ kind: 'dbuser', op: 'drop', engine: eng, user: u });
+  if (!r.ok) return showErr('uErr', r.msg);
+  toast(`Utilisateur « ${u} » supprimé.`); await loadUsers(); renderUsers();
+}
+
+// =====================================================================
+//  ALERTES WINDOWS
+// =====================================================================
+const AL = { on: true, fails: {}, down: {} };
+const alKey = (a) => `${a.type}|${a.target}|${a.name}`;
+// Une panne n'est annoncée qu'au 2e contrôle raté d'affilée ; le retour à la normale est annoncé une fois.
+function runAlerts() {
+  const seen = new Set();
+  S.apps.forEach((a, i) => {
+    const r = S.res[i]; if (!r) return;
+    const k = alKey(a); seen.add(k);
+    if (r.state === 'red') {
+      AL.fails[k] = (AL.fails[k] || 0) + 1;
+      if (AL.fails[k] >= 2 && !AL.down[k]) { AL.down[k] = true; api.notify(`${a.name} : problème`, `${r.word}. ${r.detail || ''}`.trim()); }
+    } else if (r.state === 'green' || r.state === 'orange') {
+      AL.fails[k] = 0;
+      if (AL.down[k]) { AL.down[k] = false; api.notify(`${a.name} : de nouveau en ligne`, 'Tout est revenu à la normale.'); }
+    }
+  });
+  Object.keys(AL.fails).forEach((k) => { if (!seen.has(k)) { delete AL.fails[k]; delete AL.down[k]; } });
+}
+function showAlModes() { document.querySelectorAll('#alModes .type').forEach((b) => b.classList.toggle('sel', (b.dataset.on === '1') === AL.on)); }
+document.querySelectorAll('#alModes .type').forEach((b) => {
+  b.onclick = async () => {
+    const r = await api.alertsSet(b.dataset.on === '1'); AL.on = r.on; showAlModes();
+    $('alMsg').textContent = AL.on ? 'Alertes activées.' : 'Alertes désactivées : aucune notification ne sera envoyée.';
+  };
+});
+$('alTest').onclick = async () => {
+  const sent = await api.notify('VPS-Cockpit', 'Ceci est une notification de test : les alertes fonctionnent.');
+  $('alMsg').textContent = sent ? 'Notification envoyée. Si tu ne vois rien, regarde les réglages Windows (Notifications, assistant de concentration).' : (AL.on ? "Windows n'a pas pu afficher la notification." : "Les alertes sont désactivées : active-les d'abord.");
+};
+(async () => { const r = await api.alertsGet(); AL.on = r.on; showAlModes(); })();
 
 // =====================================================================
 //  MISES À JOUR
