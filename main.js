@@ -88,7 +88,7 @@ ipcMain.handle('update:check', async () => {
     const info = U.pickRelease(repo, await res.json());
     if (!info) { clearTimeout(to); return { ok: true, upToDate: true, current: app.getVersion() }; }
     clearTimeout(to);
-    if (info.incomplete) return { ok: false, error: "La publication ne contient pas d'exe nommé VPS-Cockpit-vX.Y.Z.exe avec son empreinte." };
+    if (info.incomplete) return { ok: false, error: "La publication ne contient pas d'exe nommé VPSCockpit-Portable-X.Y.Z.exe avec son empreinte." };
     const remoteSha = info.sha;
     const localSha = await hashFile(exePath());
     const localMtime = fs.statSync(exePath()).mtimeMs;

@@ -2,11 +2,11 @@
 // Mise à jour : logique pure (testable sans Electron). Aucun numéro de version :
 // une mise à jour existe quand l'exe publié est différent du tien ET plus récent que le tien.
 const REPO_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
-const EXE_RE = /^VPS-Cockpit-v(\d+\.\d+\.\d+)\.exe$/;
+const EXE_RE = /^VPSCockpit-Portable-(\d+\.\d+\.\d+)\.exe$/;
 
 const validRepo = (r) => REPO_RE.test(String(r || '')) && !String(r).split('/').some((p) => /^\.+$/.test(p)) && !String(r).startsWith('.');
 
-// Analyse la réponse « latest release » de GitHub. L'exe s'appelle VPS-Cockpit-vX.Y.Z.exe et son empreinte SHA-256
+// Analyse la réponse « latest release » de GitHub. L'exe s'appelle VPSCockpit-Portable-X.Y.Z.exe et son empreinte SHA-256
 // est donnée par GitHub lui-même (champ « digest » de l'asset) : aucun fichier .sha256 à publier.
 // Retourne null (rien d'exploitable), { incomplete:true } ou { exeUrl, sha, size, publishedAt }.
 function pickRelease(repo, rel) {
@@ -32,12 +32,12 @@ function parseSha(text) {
 // (ça évite de « revenir en arrière » vers une vieille version publiée).
 const isNewer = ({ localSha, remoteSha, publishedAt, localMtime }) => !!remoteSha && remoteSha !== localSha && publishedAt > localMtime;
 
-// L'ancien exe à supprimer après une mise à jour : même dossier que le nouveau, nom VPS-Cockpit*.exe, et différent du nouveau.
+// L'ancien exe à supprimer après une mise à jour : même dossier que le nouveau, nom VPSCockpit*.exe ou VPS-Cockpit*.exe (anciennes versions), et différent du nouveau.
 const path = require('path');
 function safeOldExe(oldPath, ownPath) {
   if (!oldPath || !ownPath) return null;
   const a = path.win32.parse(String(oldPath)), b = path.win32.parse(String(ownPath));
-  if (!/^VPS-Cockpit[A-Za-z0-9._ -]*\.exe$/i.test(a.base)) return null;
+  if (!/^VPS-?Cockpit[A-Za-z0-9._ -]*\.exe$/i.test(a.base)) return null;
   if (a.dir.toLowerCase() !== b.dir.toLowerCase() || a.base.toLowerCase() === b.base.toLowerCase()) return null;
   return String(oldPath);
 }
