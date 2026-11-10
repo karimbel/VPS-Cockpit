@@ -165,10 +165,24 @@
           </div>
           <p id="updMsg" class="muted small"></p>
         </article>
+        <article class="card col">
+          <div><h2 class="s20">Alertes Windows</h2><p class="muted mt2">Une notification Windows s'affiche quand une de tes apps surveillées tombe en panne (après deux contrôles ratés d'affilée, pour éviter les fausses alertes), puis quand elle revient. Elles fonctionnent tant que l'application est ouverte, même réduite, et connectée à ton serveur.</p></div>
+          <div id="alModes" class="grid2">
+            <button class="type" type="button" data-on="1"><b>Activées</b><span>Tu es prévenu dès qu'une pastille passe au rouge, sans avoir à regarder l'écran.</span></button>
+            <button class="type" type="button" data-on="0"><b>Désactivées</b><span>Aucune notification : tu regardes toi-même l'écran de l'application.</span></button>
+          </div>
+          <div class="row wrap"><button class="btn" id="alTest" type="button">Envoyer une notification de test</button></div>
+          <p id="alMsg" class="muted small"></p>
+        </article>
       </section>
 
       <!-- FICHIERS ET BASES -->
       <section id="page-files" class="page" hidden>
+        <article id="bkCard" class="card col" hidden>
+          <h3 id="bkTitle" class="s19"></h3>
+          <p id="bkText" class="soft"></p>
+          <div class="row wrap"><button class="btn pri sm" id="bkShow" type="button" hidden>Afficher dans le dossier</button><button class="btn sm" id="bkClose" type="button" hidden>Fermer</button></div>
+        </article>
         <article class="card col">
           <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Parcours ton serveur, crée, modifie, renomme ou supprime des dossiers et des fichiers texte. Je ne modifie que tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp) : le reste du système est protégé. Tu peux regarder partout.</p></div>
           <div class="row wrap aend">
@@ -176,7 +190,7 @@
             <label class="f field m0 f2"><span class="label">Dossier ouvert</span><input id="fPath" placeholder="/home/ubuntu"></label>
             <button class="btn pri mh46" id="fGo" type="button">Ouvrir</button>
           </div>
-          <div class="row wrap"><button class="btn" id="fNewDir" type="button">Nouveau dossier</button><button class="btn" id="fNewFile" type="button">Nouveau fichier</button></div>
+          <div class="row wrap"><button class="btn" id="fNewDir" type="button">Nouveau dossier</button><button class="btn" id="fNewFile" type="button">Nouveau fichier</button><button class="btn" id="fBackup" type="button">Sauvegarder ce dossier</button></div>
           <p id="fErr" class="msg err" hidden></p>
           <div id="fList" class="flist"></div>
         </article>
@@ -187,7 +201,7 @@
           <div class="row"><button class="btn pri" id="fSave" type="button">Enregistrer</button><button class="btn" id="fClose" type="button">Fermer</button></div>
         </article>
         <article class="card col">
-          <div><h2 class="s20">Bases de données</h2><p class="muted mt2">Crée ou supprime une base. Les bases dont le serveur a besoin (postgres, mysql, etc.) sont protégées et n'apparaissent pas ici. Supprimer une base efface toutes ses données, et la suppression demande que tu retapes son nom.</p></div>
+          <div><h2 class="s20">Bases de données</h2><p class="muted mt2">Crée, sauvegarde ou supprime une base. Les bases dont le serveur a besoin (postgres, mysql, etc.) sont protégées et n'apparaissent pas ici. Supprimer une base efface toutes ses données, et la suppression demande que tu retapes son nom.</p></div>
           <div class="row wrap aend">
             <label class="f field m0 dbsel"><span class="label">Type de base</span><select id="dbEng"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
             <label class="f field m0"><span class="label">Nom de la nouvelle base</span><input id="dbNew" placeholder="ma_base"></label>
@@ -195,6 +209,26 @@
           </div>
           <p id="dbErr" class="msg err" hidden></p>
           <div id="dbList" class="flist"></div>
+        </article>
+        <article class="card col">
+          <div><h2 class="s20">Utilisateurs des bases</h2><p class="muted mt2">Une application a besoin d'un utilisateur et d'un mot de passe pour lire sa base. Ici tu en crées un avec accès complet à UNE base choisie : le mot de passe est généré pour toi et affiché une seule fois.</p></div>
+          <div class="row wrap aend">
+            <label class="f field m0 dbsel"><span class="label">Type de base</span><select id="uEng"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option></select></label>
+            <label class="f field m0 dbsel"><span class="label">Base concernée</span><select id="uDb"></select></label>
+            <label class="f field m0"><span class="label">Nom de l'utilisateur</span><input id="uName" placeholder="mon_app" autocomplete="off"></label>
+            <button class="btn pri mh46" id="uCreate" type="button">Créer l'utilisateur</button>
+          </div>
+          <p id="uErr" class="msg err" hidden></p>
+          <div id="uResult" class="card okc col" hidden>
+            <h3 class="s19">Utilisateur créé : copie son mot de passe maintenant</h3>
+            <p class="soft">Il ne sera plus jamais affiché. Les infos sont valables pour une application qui tourne sur ce même serveur.</p>
+            <div class="grid2">
+              <div class="tip"><div class="label">Utilisateur</div><b id="uResUser"></b></div>
+              <div class="tip"><div class="label">Mot de passe</div><b id="uResPass" class="code"></b></div>
+            </div>
+            <div class="row wrap"><button class="btn pri sm" id="uCopyPass" type="button">Copier le mot de passe</button><button class="btn sm" id="uCopyUrl" type="button">Copier l'adresse de connexion</button><button class="btn sm" id="uResClose" type="button">J'ai tout copié, fermer</button></div>
+          </div>
+          <div id="uList" class="flist"></div>
         </article>
       </section>
 

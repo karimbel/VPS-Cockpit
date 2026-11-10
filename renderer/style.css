@@ -193,3 +193,5 @@ details.help p{margin-top:8px;color:var(--soft);font-size:14px}
 .frow .linkbtn.name{color:var(--text);text-decoration:none;font-weight:600;text-align:left}
 .editor{width:100%;min-height:340px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:14px;font:13px/1.5 ui-monospace,Consolas,monospace;tab-size:2}
 .modal input{width:100%;margin:0}
+.linkbtn:disabled{opacity:.5;cursor:default}
+#uResPass{font-size:16px;letter-spacing:.04em;user-select:all}

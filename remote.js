@@ -52,6 +52,18 @@ if [ -n "$M" ]; then
 else echo "[mysql:none]"; fi
 `;
 
+const DBUSERS_SCRIPT = `cd /tmp
+if command -v psql >/dev/null 2>&1; then
+  o=$(runuser -u postgres -- psql -d postgres -tAc "select rolname from pg_roles where rolcanlogin and rolname !~ '^pg_' and rolname <> 'postgres' order by 1" 2>&1); c=$?
+  if [ $c -eq 0 ]; then echo "[postgres:up]"; echo "$o"; else echo "[postgres:down]"; fi
+else echo "[postgres:none]"; fi
+M=$(command -v mysql || command -v mariadb)
+if [ -n "$M" ]; then
+  o=$("$M" -N -B -e "select distinct user from mysql.user where host='localhost' and user not in ('','root','mysql','mariadb.sys','mysql.sys','mysql.session','mysql.infoschema','debian-sys-maint') order by 1" 2>&1); c=$?
+  if [ $c -eq 0 ]; then echo "[mysql:up]"; echo "$o"; else echo "[mysql:down]"; fi
+else echo "[mysql:none]"; fi
+`;
+
 const ACTIONS = {
   stats: { script: STATS_SCRIPT, quiet: true },
   services: { script: SERVICES_SCRIPT, quiet: true },
@@ -79,6 +91,7 @@ echo "== Mises à jour disponibles"; if command -v apt-get >/dev/null 2>&1; then
 echo "== Redémarrage requis"; [ -f /var/run/reboot-required ] && echo oui || echo non`,
   },
   dblist: { script: DBLIST_SCRIPT, sudo: true, quiet: true },
+  dbusers: { script: DBUSERS_SCRIPT, sudo: true, quiet: true },
   diskusage: {
     sudo: true,
     quiet: true,
@@ -194,6 +207,19 @@ function parseDbList(text) {
   return out;
 }
 const DB_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$/;
+
+// Utilisateurs de bases : même forme que parseDbList, avec la liste des noms de comptes.
+function parseDbUsers(text) {
+  const out = { postgres: { state: 'none', users: [] }, mysql: { state: 'none', users: [] } };
+  let cur = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    const m = /^\[(postgres|mysql):(up|down|none)\]$/.exec(line);
+    if (m) { cur = out[m[1]]; cur.state = m[2]; continue; }
+    if (cur && /^[A-Za-z0-9_.-]{1,64}$/.test(line)) cur.users.push(line);
+  }
+  return out;
+}
 
 
 // ---------- Fichiers et bases de données (écriture) ----------
@@ -327,6 +353,124 @@ o=$("$M" -e 'SET SESSION sql_mode=CONCAT(@@sql_mode,",ANSI_QUOTES"); ${verb} "${
 ` };
 }
 
+// ---------- Sauvegardes (lecture seule : le serveur envoie l'archive, l'application l'enregistre sur le PC) ----------
+const BACKUP_ROOTS = [['/home', 1], ['/root', 0], ['/var/www', 0], ['/srv', 0], ['/opt', 0], ['/tmp', 1]];
+const BACKUP_MSG = 'Je ne sauvegarde que les dossiers de travail : /home, /root, /var/www, /srv, /opt et /tmp.';
+function backupPathOk(p) {
+  return BACKUP_ROOTS.some(([r, d]) => (p === r ? d === 0 : p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= Math.max(d, 1)));
+}
+// Même contrôle côté serveur, sur le chemin réel (liens symboliques suivis). Les erreurs vont sur stderr : stdout est l'archive.
+const GUARD_BIN = String.raw`R=$(realpath -m -- "$P") || exit 3
+case "$R" in
+  /home/*|/root|/root/*|/var/www|/var/www/*|/srv|/srv/*|/opt|/opt/*|/tmp/*) ;;
+  *) echo "${BACKUP_MSG}" >&2; exit 3;;
+esac
+`;
+const safeFile = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'sauvegarde';
+
+function backupAction(kind, a = {}) {
+  if (kind === 'db') {
+    const engine = a.engine, n = String(a.name || '');
+    if (!['postgres', 'mysql'].includes(engine)) throw new Error('Type de base inconnu');
+    if (!DB_NAME_RE.test(n)) throw new Error('Nom de base invalide.');
+    const fileName = (stamp) => `${safeFile(n)}_${engine === 'postgres' ? 'postgresql' : 'mysql'}_${stamp}.sql.gz`;
+    const label = `Sauvegarde de la base « ${n} »`;
+    if (engine === 'postgres') {
+      return { label, fileName, sudo: true, script: String.raw`cd /tmp
+set -o pipefail
+command -v pg_dump >/dev/null 2>&1 || { echo "PostgreSQL n'est pas installé sur ce serveur." >&2; exit 3; }
+runuser -u postgres -- pg_dump --dbname='${n}' </dev/null | gzip -c
+` };
+    }
+    return { label, fileName, sudo: true, script: String.raw`cd /tmp
+set -o pipefail
+D=$(command -v mysqldump || command -v mariadb-dump)
+[ -n "$D" ] || { echo "MySQL / MariaDB n'est pas installé sur ce serveur." >&2; exit 3; }
+"$D" --single-transaction --routines --triggers --default-character-set=utf8mb4 '${n}' </dev/null | gzip -c
+` };
+  }
+  if (kind === 'dir') {
+    const p = cleanPath(a.path);
+    if (!backupPathOk(p)) throw new Error(BACKUP_MSG);
+    const base = p.split('/').filter(Boolean).pop() || 'dossier';
+    const fileName = (stamp) => `${safeFile(base)}_${stamp}.tar.gz`;
+    return { label: `Sauvegarde du dossier ${p}`, fileName, sudo: true, script: String.raw`export LC_ALL=C
+P=${quote(p)}
+${GUARD_BIN}[ -d "$R" ] || { echo "Ce dossier n'existe pas." >&2; exit 3; }
+tar -czf - -C "$(dirname -- "$R")" -- "$(basename -- "$R")" </dev/null
+c=$?; [ $c -le 1 ] || exit $c
+` };
+  }
+  throw new Error('Action inconnue');
+}
+
+// ---------- Utilisateurs de bases de données ----------
+const DB_USER_RE = /^[a-z][a-z0-9_]{0,30}$/;
+const DB_PASS_RE = /^[A-Za-z0-9]{16,64}$/;
+const DB_USER_PROTECTED = ['postgres', 'root', 'mysql', 'mariadb', 'admin', 'public', 'debian'];
+const BT = String.fromCharCode(96);
+
+function dbUserAdmin(op, engine, user, db, password) {
+  if (!['create', 'drop'].includes(op)) throw new Error('Action inconnue');
+  if (!['postgres', 'mysql'].includes(engine)) throw new Error('Type de base inconnu');
+  const u = String(user || '');
+  if (!DB_USER_RE.test(u)) throw new Error("Nom d'utilisateur invalide : minuscules, chiffres et _ , il commence par une lettre (31 caractères maximum).");
+  if (DB_USER_PROTECTED.includes(u) || /^pg_/.test(u)) throw new Error('Ce nom est réservé par le serveur.');
+  const done = op === 'create' ? 'Utilisateur créé.' : 'Utilisateur supprimé.';
+  const label = (op === 'create' ? 'Créer l\'utilisateur ' : 'Supprimer l\'utilisateur ') + u;
+  const base = { label, sudo: true, quiet: true, keepOut: true };
+  let d = '', pw = '';
+  if (op === 'create') {
+    d = String(db || ''); pw = String(password || '');
+    if (!DB_NAME_RE.test(d)) throw new Error('Nom de base invalide.');
+    if (!DB_PASS_RE.test(pw)) throw new Error('Mot de passe invalide : 16 à 64 lettres et chiffres.');
+  }
+  if (engine === 'postgres') {
+    const head = String.raw`cd /tmp
+command -v psql >/dev/null 2>&1 || { echo "ERR=PostgreSQL n'est pas installé sur ce serveur."; exit 0; }
+PG() { runuser -u postgres -- psql -v ON_ERROR_STOP=1 -q "$@" 2>&1; }
+`;
+    if (op === 'create') {
+      const sql1 = `CREATE ROLE "${u}" LOGIN PASSWORD '${pw}';\nGRANT ALL PRIVILEGES ON DATABASE "${d}" TO "${u}";`;
+      const sql2 = `GRANT ALL ON SCHEMA public TO "${u}";\nGRANT ALL ON ALL TABLES IN SCHEMA public TO "${u}";\nGRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${u}";`;
+      return { ...base, script: head + String.raw`o=$(PG -1 -d postgres -f - <<'SQL'
+${sql1}
+SQL
+) || { echo "ERR=$(echo "$o" | tr '\n' ' ')"; exit 0; }
+o=$(PG -d "${d}" -f - <<'SQL'
+${sql2}
+SQL
+) || { PG -d postgres -c 'REVOKE ALL ON DATABASE "${d}" FROM "${u}"' -c 'DROP ROLE "${u}"' >/dev/null; echo "ERR=$(echo "$o" | tr '\n' ' ')"; exit 0; }
+echo "OK=${done}"
+` };
+    }
+    return { ...base, script: head + String.raw`[ "$(PG -d postgres -tAc "select 1 from pg_roles where rolname='${u}'")" = 1 ] || { echo "ERR=Cet utilisateur n'existe pas (ou plus)."; exit 0; }
+for d in $(PG -d postgres -tAc "select datname from pg_database where datallowconn and datname ~ '^[A-Za-z0-9_-]+$'" </dev/null); do
+  PG -v ON_ERROR_STOP=0 -d "$d" -c 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "${u}"' -c 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM "${u}"' -c 'REVOKE ALL ON SCHEMA public FROM "${u}"' -c "REVOKE ALL ON DATABASE \"$d\" FROM \"${u}\"" </dev/null >/dev/null
+done
+o=$(PG -d postgres -c 'DROP ROLE "${u}"') && echo "OK=${done}" || echo "ERR=$(echo "$o" | tr '\n' ' ')"
+` };
+  }
+  const head = String.raw`cd /tmp
+M=$(command -v mysql || command -v mariadb)
+[ -n "$M" ] || { echo "ERR=MySQL / MariaDB n'est pas installé sur ce serveur."; exit 0; }
+`;
+  if (op === 'create') {
+    const dbEsc = d.replace(/_/g, '\\_'); // « _ » est un joker dans les droits MySQL : on l'écrit littéralement
+    const sql = `CREATE USER '${u}'@'localhost' IDENTIFIED BY '${pw}';\nGRANT ALL PRIVILEGES ON ${BT}${dbEsc}${BT}.* TO '${u}'@'localhost';\nFLUSH PRIVILEGES;`;
+    return { ...base, script: head + String.raw`[ "$("$M" -N -B -e "select count(*) from information_schema.schemata where schema_name='${d}'" 2>/dev/null)" = 1 ] || { echo "ERR=Cette base n'existe pas."; exit 0; }
+[ "$("$M" -N -B -e "select count(*) from mysql.user where user='${u}' and host='localhost'" 2>/dev/null)" = 0 ] || { echo "ERR=Cet utilisateur existe déjà."; exit 0; }
+o=$("$M" 2>&1 <<'SQL'
+${sql}
+SQL
+) && echo "OK=${done}" || { "$M" -e "DROP USER IF EXISTS '${u}'@'localhost'" >/dev/null 2>&1; echo "ERR=$(echo "$o" | tr '\n' ' ')"; }
+` };
+  }
+  return { ...base, script: head + String.raw`[ "$("$M" -N -B -e "select count(*) from mysql.user where user='${u}' and host='localhost'" 2>/dev/null)" != 0 ] || { echo "ERR=Cet utilisateur n'existe pas (ou plus)."; exit 0; }
+o=$("$M" -e "DROP USER '${u}'@'localhost'" 2>&1) && echo "OK=${done}" || echo "ERR=$(echo "$o" | tr '\n' ' ')"
+` };
+}
+
 function parseDiskUsage(text) {
   return text.split('\n')
     .map((l) => l.trim().split('|'))
@@ -335,4 +479,4 @@ function parseDiskUsage(text) {
     .sort((a, b) => b.bytes - a.bytes);
 }
 
-module.exports = { ACTIONS, fsAction, dbAdmin, DB_PROTECTED, serviceAction, dockerAction, wrap, parseStats, parseServices, parseDiskUsage, parseDbList, DB_NAME_RE, SERVICE_RE };
+module.exports = { ACTIONS, fsAction, dbAdmin, backupAction, backupPathOk, dbUserAdmin, parseDbUsers, DB_USER_RE, DB_PASS_RE, DB_PROTECTED, serviceAction, dockerAction, wrap, parseStats, parseServices, parseDiskUsage, parseDbList, DB_NAME_RE, SERVICE_RE };
