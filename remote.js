@@ -223,14 +223,22 @@ function parseDbUsers(text) {
 
 
 // ---------- Fichiers et bases de données (écriture) ----------
-// Toutes les valeurs sont validées ici AVANT d'être mises dans un script, et le script revérifie
-// le chemin réel (realpath) : on ne peut agir que dans les dossiers autorisés.
+// Toutes les valeurs sont validées ici AVANT d'être mises dans un script, et le script revérifie le chemin réel.
+// Lecture : partout. Écriture : partout aussi, avec trois garde-fous qui évitent de rendre le serveur inutilisable :
+//  1. rien sur la racine, sur les dossiers de premier niveau (/etc, /usr…), ni dans /proc, /sys, /dev et /run ;
+//  2. hors des dossiers de travail, un dossier ne se renomme ou ne se supprime qu'à partir du 3e niveau ;
+//  3. hors des dossiers de travail, tout fichier écrasé ou supprimé est d'abord copié dans SYS_BACKUP_DIR.
 const PATH_RE = /^\/[A-Za-z0-9._\/@:+~ -]{0,300}$/;
-const WRITE_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
+const WORK_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
+const VIRTUAL_ROOTS = ['/proc', '/sys', '/dev', '/run'];
+const SYS_BACKUP_DIR = '/var/backups/vps-cockpit';
 const DB_NAME_STRICT = /^[A-Za-z][A-Za-z0-9_]{0,62}$/;
 const DB_PROTECTED = ['postgres', 'template0', 'template1', 'mysql', 'information_schema', 'performance_schema', 'sys'];
 const MAX_FILE = 40000;
-const PROTECTED_MSG = 'Dossier protégé : je ne modifie que /home (dans un dossier utilisateur), /root, /var/www, /srv, /opt et /tmp.';
+// Ces messages sont insérés dans des scripts entre guillemets doubles : ni guillemet double, ni $, ni accent grave.
+const PROTECTED_MSG = 'Emplacement protégé : je ne modifie ni la racine, ni les dossiers de premier niveau, ni /proc, /sys, /dev et /run.';
+const SYSDIR_MSG = 'Dossier système protégé : hors des dossiers de travail, je ne renomme et ne supprime un dossier que s\'il est au moins au troisième niveau (exemple : /etc/caddy/sites).';
+const BKFAIL_MSG = 'Copie de sécurité impossible : je n\'ai rien modifié.';
 
 function cleanPath(p) {
   let s = String(p || '').trim();
@@ -238,19 +246,44 @@ function cleanPath(p) {
   if (!PATH_RE.test(s) || s.split('/').includes('..') || s.includes('//')) throw new Error('Chemin invalide : il doit commencer par / et ne contenir que des lettres, chiffres et . _ - @ : + ~ espace.');
   return s;
 }
+const depthOf = (p) => p.split('/').filter(Boolean).length;
+const isVirtual = (p) => VIRTUAL_ROOTS.some((r) => p === r || p.startsWith(r + '/'));
+const isWorkPath = (p) => WORK_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
 function writablePath(p) {
-  const ok = WRITE_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
-  if (!ok) throw new Error(PROTECTED_MSG);
+  if (depthOf(p) < 2 || isVirtual(p)) throw new Error(PROTECTED_MSG);
   return p;
 }
 const quote = (s) => "'" + s + "'"; // s est validé : jamais d'apostrophe dedans
 const toB64 = (s) => Buffer.from(s, 'utf8').toString('base64');
-// Contrôle shell du chemin réel (suit les liens symboliques) ; utilise $P, définit $R.
-const GUARD = String.raw`R=$(realpath -m -- "$P") || exit 1
-case "$R" in
-  /home/*/*|/root/*|/var/www/*|/srv/*|/opt/*|/tmp/*) ;;
+// Contrôles communs sur le chemin réel $R : emplacement autorisé, puis zone (Z=work dossier de travail, Z=sys reste du système).
+const ZONE = String.raw`case "$R" in
+  /proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*) echo "ERR=${PROTECTED_MSG}"; exit 0;;
+  /*/*) ;;
   *) echo "ERR=${PROTECTED_MSG}"; exit 0;;
 esac
+case "$R" in
+  /home/*/*|/root/*|/var/www/*|/srv/*|/opt/*|/tmp/*) Z=work;;
+  *) Z=sys;;
+esac
+`;
+// Contenu d'un fichier (lire, écrire, créer) : liens symboliques suivis jusqu'au bout ; utilise $P, définit $R et $Z.
+const GUARD = String.raw`R=$(realpath -m -- "$P") || exit 1
+` + ZONE;
+// Entrée d'un dossier (renommer, supprimer) : seul le dossier parent est résolu, pour agir sur un lien et non sur sa cible.
+const GUARD_ENTRY = String.raw`RD=$(realpath -m -- "$(dirname -- "$P")") || exit 1
+if [ "$RD" = / ]; then R="/$(basename -- "$P")"; else R="$RD/$(basename -- "$P")"; fi
+` + ZONE;
+// Copie de sécurité d'un fichier système avant de l'écraser ou de le supprimer ; définit $BK.
+const BK_FN = String.raw`bk() {
+  mkdir -p ${SYS_BACKUP_DIR} && chmod 700 ${SYS_BACKUP_DIR} || return 1
+  BK="${SYS_BACKUP_DIR}/$(printf '%s' "$1" | sed 's|^/||; s|/|__|g').$(date +%Y%m%d-%H%M%S)"
+  cp -p -- "$1" "$BK"
+}
+`;
+// Refuse un dossier système trop proche de la racine ; utilise $R et $Z.
+const SYSDIR_CHECK = String.raw`if [ "$Z" = sys ] && [ -d "$R" ] && [ ! -L "$R" ]; then
+  [ "$(printf '%s' "$R" | tr -cd / | wc -c)" -ge 3 ] || { echo "ERR=${SYSDIR_MSG}"; exit 0; }
+fi
 `;
 
 function fsAction(op, a = {}) {
@@ -265,11 +298,12 @@ find "$P" -mindepth 1 -maxdepth 1 -printf '%y|%s|%TY-%Tm-%Td %TH:%TM|%f\n' 2>/de
 ` };
   }
   if (op === 'read') {
-    const p = writablePath(cleanPath(a.path));
+    const p = cleanPath(a.path);
     return { ...base, label: 'Lire un fichier', script: String.raw`export LC_ALL=C
 P=${quote(p)}
-${GUARD}[ -f "$R" ] || { echo "ERR=Ce n'est pas un fichier."; exit 0; }
-S=$(stat -c %s -- "$R"); [ "$S" -le ${MAX_FILE} ] || { echo "ERR=Fichier trop gros pour être modifié ici (maximum 40 Ko)."; exit 0; }
+R=$(realpath -m -- "$P") || exit 1
+[ -f "$R" ] || { echo "ERR=Ce n'est pas un fichier."; exit 0; }
+S=$(stat -c %s -- "$R"); [ "$S" -le ${MAX_FILE} ] || { echo "ERR=Fichier trop gros pour être ouvert ici (maximum 40 Ko)."; exit 0; }
 tr -d '\000' < "$R" | cmp -s - "$R" || { echo "ERR=Ce fichier n'est pas du texte."; exit 0; }
 echo "[contenu]"
 cat -- "$R"
@@ -280,15 +314,20 @@ cat -- "$R"
     const content = String(a.content == null ? '' : a.content);
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE) throw new Error('Fichier trop gros : 40 Ko maximum.');
     return { ...base, label: 'Enregistrer un fichier', script: String.raw`export LC_ALL=C
-P=${quote(p)}
+${BK_FN}P=${quote(p)}
 ${GUARD}D=$(dirname -- "$R")
 [ -d "$D" ] || { echo "ERR=Le dossier parent n'existe pas."; exit 0; }
 [ -d "$R" ] && { echo "ERR=C'est un dossier, pas un fichier."; exit 0; }
 if [ ${a.create ? 1 : 0} = 1 ] && [ -e "$R" ]; then echo "ERR=Ce fichier existe déjà."; exit 0; fi
 NEW=0; [ -e "$R" ] || NEW=1
+SAVED=""
+if [ "$Z" = sys ] && [ -f "$R" ]; then
+  bk "$R" || { echo "ERR=${BKFAIL_MSG}"; exit 0; }
+  SAVED=" Ancienne version copiée dans $BK"
+fi
 o=$(echo ${toB64(content)} | base64 -d > "$R" 2>&1) || { echo "ERR=$o"; exit 0; }
 [ "$NEW" = 1 ] && chown --reference="$D" -- "$R" 2>/dev/null
-echo "OK=Fichier enregistré."
+echo "OK=Fichier enregistré.$SAVED"
 ` };
   }
   if (op === 'mkdir') {
@@ -306,12 +345,12 @@ echo "OK=Dossier créé."
   if (op === 'rename') {
     const from = writablePath(cleanPath(a.from)), to = writablePath(cleanPath(a.to));
     return { ...base, label: 'Renommer', script: String.raw`export LC_ALL=C
-P=${quote(from)}
-${GUARD}A="$R"
 P=${quote(to)}
-${GUARD}B="$R"
-[ -e "$A" ] || { echo "ERR=L'élément à renommer n'existe pas."; exit 0; }
-[ -e "$B" ] && { echo "ERR=Ce nom existe déjà."; exit 0; }
+${GUARD_ENTRY}B="$R"
+P=${quote(from)}
+${GUARD_ENTRY}A="$R"
+[ -e "$A" ] || [ -L "$A" ] || { echo "ERR=L'élément à renommer n'existe pas."; exit 0; }
+${SYSDIR_CHECK}[ -e "$B" ] || [ -L "$B" ] && { echo "ERR=Ce nom existe déjà."; exit 0; }
 [ -d "$(dirname -- "$B")" ] || { echo "ERR=Le dossier de destination n'existe pas."; exit 0; }
 o=$(mv -n -- "$A" "$B" 2>&1) || { echo "ERR=$o"; exit 0; }
 echo "OK=Renommé."
@@ -320,11 +359,16 @@ echo "OK=Renommé."
   if (op === 'delete') {
     const p = writablePath(cleanPath(a.path));
     return { ...base, label: 'Supprimer', script: String.raw`export LC_ALL=C
-P=${quote(p)}
-${GUARD}[ -e "$R" ] || [ -L "$R" ] || { echo "ERR=Cet élément n'existe déjà plus."; exit 0; }
-if mountpoint -q -- "$R" 2>/dev/null; then echo "ERR=C'est un disque monté : je ne le supprime pas."; exit 0; fi
+${BK_FN}P=${quote(p)}
+${GUARD_ENTRY}[ -e "$R" ] || [ -L "$R" ] || { echo "ERR=Cet élément n'existe déjà plus."; exit 0; }
+${SYSDIR_CHECK}if mountpoint -q -- "$R" 2>/dev/null; then echo "ERR=C'est un disque monté : je ne le supprime pas."; exit 0; fi
+SAVED=""
+if [ "$Z" = sys ] && [ -f "$R" ] && [ ! -L "$R" ]; then
+  bk "$R" || { echo "ERR=${BKFAIL_MSG}"; exit 0; }
+  SAVED=" Copie gardée dans $BK"
+fi
 o=$(rm -rf --one-file-system -- "$R" 2>&1) || { echo "ERR=$o"; exit 0; }
-echo "OK=Supprimé."
+echo "OK=Supprimé.$SAVED"
 ` };
   }
   throw new Error('Action inconnue');
@@ -354,16 +398,14 @@ o=$("$M" -e 'SET SESSION sql_mode=CONCAT(@@sql_mode,",ANSI_QUOTES"); ${verb} "${
 }
 
 // ---------- Sauvegardes (lecture seule : le serveur envoie l'archive, l'application l'enregistre sur le PC) ----------
-const BACKUP_ROOTS = [['/home', 1], ['/root', 0], ['/var/www', 0], ['/srv', 0], ['/opt', 0], ['/tmp', 1]];
-const BACKUP_MSG = 'Je ne sauvegarde que les dossiers de travail : /home, /root, /var/www, /srv, /opt et /tmp.';
+const BACKUP_MSG = 'Je ne sauvegarde ni la racine entière, ni /proc, /sys, /dev et /run.';
 function backupPathOk(p) {
-  return BACKUP_ROOTS.some(([r, d]) => (p === r ? d === 0 : p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= Math.max(d, 1)));
+  return p !== '/' && depthOf(p) >= 1 && !isVirtual(p);
 }
 // Même contrôle côté serveur, sur le chemin réel (liens symboliques suivis). Les erreurs vont sur stderr : stdout est l'archive.
 const GUARD_BIN = String.raw`R=$(realpath -m -- "$P") || exit 3
 case "$R" in
-  /home/*|/root|/root/*|/var/www|/var/www/*|/srv|/srv/*|/opt|/opt/*|/tmp/*) ;;
-  *) echo "${BACKUP_MSG}" >&2; exit 3;;
+  /|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*) echo "${BACKUP_MSG}" >&2; exit 3;;
 esac
 `;
 const safeFile = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'sauvegarde';

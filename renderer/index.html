@@ -192,7 +192,7 @@
           <button type="button" data-tab="users">Utilisateurs des bases</button>
         </div>
         <article class="card col" data-pane="files">
-          <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Tu peux regarder partout. Je ne modifie que tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp) : le reste du système est protégé.</p></div>
+          <div><h2 class="s20">Fichiers et dossiers</h2><p class="muted mt2">Tu peux lire et modifier tout le serveur. Hors de tes espaces de travail (/home, /root, /var/www, /srv, /opt, /tmp), un fichier modifié ou supprimé est d'abord copié dans /var/backups/vps-cockpit. Restent protégés : la racine, les dossiers de premier niveau, /proc, /sys, /dev et /run.</p></div>
           <div class="row wrap">
             <input id="fPath" class="grow m0 fpath" placeholder="/home/ubuntu" aria-label="Dossier ouvert">
             <button class="btn pri" id="fGo" type="button">Ouvrir</button>
