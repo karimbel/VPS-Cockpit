@@ -910,10 +910,18 @@ $('diagCopy').onclick = async () => { await api.copy($('diagOut').textContent); 
 //  FICHIERS ET BASES DE DONNÉES
 // =====================================================================
 const F = { path: '', entries: [], editing: null, creating: false };
-const WRITE_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
-const canWrite = (p) => WRITE_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
-const BACKUP_ROOTS = [['/home', 1], ['/root', 0], ['/var/www', 0], ['/srv', 0], ['/opt', 0], ['/tmp', 1]];
-const canBackup = (p) => BACKUP_ROOTS.some(([r, d]) => (p === r ? d === 0 : p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= Math.max(d, 1)));
+// Mêmes règles que remote.js (qui les revérifie sur le serveur) : lecture partout, écriture partout sauf la racine,
+// les dossiers de premier niveau et les systèmes virtuels. Hors des dossiers de travail, un dossier ne se renomme
+// ou ne se supprime qu'à partir du 3e niveau, et un fichier écrasé ou supprimé est d'abord copié dans SYS_BACKUP_DIR.
+const WORK_ROOTS = [['/home', 2], ['/root', 1], ['/var/www', 1], ['/srv', 1], ['/opt', 1], ['/tmp', 1]];
+const VIRTUAL_ROOTS = ['/proc', '/sys', '/dev', '/run'];
+const SYS_BACKUP_DIR = '/var/backups/vps-cockpit';
+const depthOf = (p) => p.split('/').filter(Boolean).length;
+const isVirtual = (p) => VIRTUAL_ROOTS.some((r) => p === r || p.startsWith(r + '/'));
+const isWork = (p) => WORK_ROOTS.some(([r, d]) => p.startsWith(r + '/') && p.slice(r.length + 1).split('/').length >= d);
+const canWrite = (p) => depthOf(p) >= 2 && !isVirtual(p);
+const canMoveDir = (p) => isWork(p) || (canWrite(p) && depthOf(p) >= 3);
+const canBackup = (p) => p !== '/' && !isVirtual(p);
 const fmtSize = (n) => (n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(1).replace('.', ',')} Ko` : fmtBytes(n));
 const joinPath = (d, n) => (d === '/' ? '' : d) + '/' + n;
 const parentOf = (p) => { const i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); };
@@ -976,12 +984,12 @@ function renderFiles() {
     const row = el('div', 'frow');
     const nm = el('div', 'fname'); nm.append(icon(e.type === 'd' ? 'folder' : 'file'));
     if (e.type === 'd') { const b = el('button', 'linkbtn name', e.name); b.onclick = () => loadDir(full); nm.append(b); }
-    else if (e.type === 'f' && canWrite(full)) { const b = el('button', 'linkbtn name', e.name); b.onclick = () => openEditor(full); nm.append(b); }
+    else if (e.type === 'f') { const b = el('button', 'linkbtn name', e.name); b.onclick = () => openEditor(full); nm.append(b); }
     else nm.append(el('span', null, e.name + (e.type === 'l' ? ' (lien)' : '')));
     const meta = el('div', 'fmeta', (e.type === 'd' ? 'Dossier' : fmtSize(e.size)) + ' · ' + e.date);
     const acts = el('div', 'row');
     if (e.type === 'd' && canBackup(full)) { const bk = el('button', 'linkbtn bkbtn', 'Sauvegarder'); bk.onclick = () => runBackup({ kind: 'dir', path: full }, e.name); acts.append(bk); }
-    if (canWrite(full)) {
+    if (e.type === 'd' ? canMoveDir(full) : canWrite(full)) {
       if (e.type === 'f') { const m = el('button', 'linkbtn', 'Modifier'); m.onclick = () => openEditor(full); acts.append(m); }
       const rn = el('button', 'linkbtn', 'Renommer'); rn.onclick = () => renameEntry(e, full); acts.append(rn);
       const dl = el('button', 'linkbtn dng', 'Supprimer'); dl.onclick = () => deleteEntry(e, full); acts.append(dl);
@@ -989,9 +997,9 @@ function renderFiles() {
     row.append(nm, meta, acts); box.append(row);
   });
   $('fBackup').disabled = !canBackup(F.path);
-  $('fBackup').title = canBackup(F.path) ? '' : 'Je ne sauvegarde que les dossiers de travail (/home/utilisateur, /root, /var/www, /srv, /opt, /tmp).';
+  $('fBackup').title = canBackup(F.path) ? '' : 'Je ne sauvegarde ni la racine entière, ni /proc, /sys, /dev et /run.';
   $('fNewDir').disabled = $('fNewFile').disabled = !writable;
-  $('fNewDir').title = $('fNewFile').title = writable ? '' : 'Je ne crée rien dans ce dossier : il est protégé.';
+  $('fNewDir').title = $('fNewFile').title = writable ? '' : 'Je ne crée rien ici : la racine et les dossiers /proc, /sys, /dev et /run sont protégés.';
 }
 $('fGo').onclick = () => loadDir($('fPath').value.trim() || '/');
 $('fPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('fGo').click(); });
@@ -1029,16 +1037,21 @@ async function openEditor(path) {
 }
 $('fSave').onclick = async () => {
   if (!F.editing) return;
-  if (!F.creating && !(await ask({ title: 'Enregistrer les modifications ?', text: `Le contenu de ${F.editing} sera remplacé par ce que tu as écrit. Il n'y a pas de retour en arrière : garde une copie si tu hésites.`, yes: 'Enregistrer' }))) return;
+  const sys = !isWork(F.editing);
+  const warn = sys
+    ? `${F.editing} est un fichier du système : une erreur peut empêcher un service, ou le serveur, de fonctionner. L'ancienne version sera d'abord copiée dans ${SYS_BACKUP_DIR}.`
+    : `Le contenu de ${F.editing} sera remplacé par ce que tu as écrit. Il n'y a pas de retour en arrière : garde une copie si tu hésites.`;
+  if ((!F.creating || sys) && !(await ask({ title: F.creating ? 'Créer ce fichier système ?' : 'Enregistrer les modifications ?', text: F.creating ? `${F.editing} sera créé hors de tes dossiers de travail. Un fichier mal placé peut perturber un service.` : warn, yes: F.creating ? 'Créer' : 'Enregistrer', danger: sys }))) return;
   const r = await fsRun({ kind: 'fs', op: 'write', args: { path: F.editing, content: $('fText').value, create: F.creating } });
   if (!r.ok) return showErr('fEditErr', r.msg);
-  toast('Fichier enregistré.');
+  toast(r.msg || 'Fichier enregistré.');
   if (F.creating) { F.creating = false; $('fEditTitle').textContent = `Modifier : ${F.editing}`; loadDir(F.path); }
 };
 $('fClose').onclick = () => { F.editing = null; F.creating = false; $('fEdit').hidden = true; };
 
 async function renameEntry(e, full) {
-  const n = await askInput({ title: `Renommer « ${e.name} »`, text: `Dans ${F.path}`, value: e.name, yes: 'Renommer' });
+  const sys = !isWork(full);
+  const n = await askInput({ title: `Renommer « ${e.name} »`, text: `Dans ${F.path}` + (sys ? "\nAttention : cet élément est hors de tes dossiers de travail. Un service qui s'en sert sous son nom actuel ne le trouvera plus." : ''), value: e.name, yes: 'Renommer', danger: sys });
   if (n === null || n === e.name) return;
   if (!VALID_NAME.test(n) || n === '.' || n === '..') return showErr('fErr', 'Nom invalide : lettres, chiffres et . _ - @ : + ~ espace seulement.');
   const r = await fsRun({ kind: 'fs', op: 'rename', args: { from: full, to: joinPath(F.path, n) } });
@@ -1049,14 +1062,16 @@ async function deleteEntry(e, full) {
   const isDir = e.type === 'd';
   const n = await askInput({
     title: `Supprimer ${isDir ? 'le dossier' : 'le fichier'} « ${e.name} » ?`,
-    text: (isDir ? 'Le dossier ET tout ce qu\'il contient seront supprimés. ' : '') + `Cette action est définitive : il n'y a pas de corbeille.\nPour confirmer, retape exactement : ${e.name}`,
+    text: (isDir ? 'Le dossier ET tout ce qu\'il contient seront supprimés. ' : '')
+      + (isWork(full) ? '' : 'Attention : cet élément est hors de tes dossiers de travail, le supprimer peut casser un service ou le serveur. ' + (e.type === 'f' ? `Une copie du fichier sera gardée dans ${SYS_BACKUP_DIR}. ` : 'Aucune copie n\'est gardée pour un dossier. '))
+      + `Cette action est définitive : il n'y a pas de corbeille.\nPour confirmer, retape exactement : ${e.name}`,
     placeholder: e.name, yes: 'Supprimer', danger: true, expect: e.name,
   });
   if (n === null) return;
   const r = await fsRun({ kind: 'fs', op: 'delete', args: { path: full } });
   if (!r.ok) return showErr('fErr', r.msg);
   if (F.editing === full) $('fClose').click();
-  toast('Supprimé.'); loadDir(F.path);
+  toast(r.msg || 'Supprimé.'); loadDir(F.path);
 }
 
 // ----- sauvegardes -----
